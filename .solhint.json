@@ -1,0 +1,74 @@
+{
+    "extends": "solhint:recommended",
+    "plugins": [
+        "prettier",
+        "chainlink-solidity"
+    ],
+    "rules": {
+        "compiler-version": [
+            "warn",
+            "0.8.25"
+        ],
+        "explicit-types": "error",
+        "immutable-vars-naming": "off",
+        "const-name-snakecase": "error",
+        "constructor-syntax": "error",
+        "var-name-mixedcase": "off",
+        "no-console": "warn",
+        "gas-struct-packing": "warn",
+        "gas-small-strings": "error",
+        "gas-length-in-loops": "warn",
+        "gas-increment-by-one": "warn",
+        "gas-calldata-parameters": "warn",
+        "no-empty-blocks": "warn",
+        "no-global-import": "error",
+        "no-unused-import": "warn",
+        "no-unused-vars": "warn",
+        "max-line-length": [
+            "warn",
+            120
+        ],
+        "payable-fallback": "error",
+        "reason-string": "warn",
+        "gas-custom-errors": "warn",
+        "contract-name-camelcase": "warn",
+        "event-name-camelcase": "off",
+        "func-name-mixedcase": "off",
+        "func-visibility": [
+            "warn",
+            {
+                "ignoreConstructors": true
+            }
+        ],
+        "modifier-name-mixedcase": "warn",
+        "named-parameters-mapping": "warn",
+        "private-vars-leading-underscore": "off",
+        "imports-on-top": "warn",
+        "visibility-modifier-order": "warn",
+        "avoid-low-level-calls": "warn",
+        "avoid-call-value": "warn",
+        "avoid-throw": "error",
+        "check-send-result": "warn",
+        "no-complex-fallback": "warn",
+        "not-rely-on-block-hash": "error",
+        "not-rely-on-time": "warn",
+        "reentrancy": "warn",
+        "state-visibility": "error",
+        "ordering": "warn",
+        "multiple-sends": "warn",
+        "quotes": [
+            "error",
+            "double"
+        ],
+        "chainlink-solidity/prefix-internal-functions-with-underscore": "warn",
+        "chainlink-solidity/prefix-private-functions-with-underscore": "warn",
+        "chainlink-solidity/prefix-storage-variables-with-s-underscore": "warn",
+        "chainlink-solidity/prefix-immutable-variables-with-i": "warn",
+        "chainlink-solidity/all-caps-constant-storage-variables": "warn",
+        "chainlink-solidity/no-hardhat-imports": "warn",
+        "chainlink-solidity/explicit-imports": "warn",
+        "chainlink-solidity/inherited-constructor-args-not-in-contract-definition": "warn",
+        "chainlink-solidity/no-block-single-if-reverts": "warn",
+        "chainlink-solidity/no-require-statements": "warn"
+    }
+}
