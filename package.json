@@ -8,8 +8,9 @@
     "solhint-plugin-prettier": "^0.1.0"
   },
   "scripts": {
-    "lint": "solhint 'src/*.sol' --max-warnings 0",
-    "test": "forge test -vvv"
+    "lint": "solhint 'src/**/*.sol' --max-warnings 0",
+    "test": "forge test -vvv",
+    "analyze": "slither . --foundry-compile-all"
   },
   "repository": {
     "type": "git",

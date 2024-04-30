@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.25"
 evm_version = "cancun"
-remappings = ['@openzeppelin/contracts=lib/openzeppelin-contracts/contracts']
+remappings = []
 
 [fuzz]
 runs = 1000

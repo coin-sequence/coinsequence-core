@@ -4,7 +4,8 @@
     "exclude_medium": false,
     "exclude_high": false,
     "disable_color": false,
-    "filter_paths": "(mocks/|test/|script/|upgradedProtocol/)",
+    "filter_paths": "(mocks/|test/|script/|upgradedProtocol/|lib/)",
     "legacy_ast": false,
-    "exclude_dependencies": true
+    "exclude_dependencies": true,
+    "detectors_to_exclude": "naming-convention,solc-version"
 }
