@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: foundry-rs/f  oundry-toolchain@v1.2.0
+      - uses: foundry-rs/foundry-toolchain@v1.2.0
 
       - name: Install Node.js and Lcov
         run: sudo apt update && sudo apt install nodejs lcov -y
