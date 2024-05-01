@@ -18,8 +18,7 @@
     "open-coverage": "open coverage/html/index.html",
     "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
-    "postinstall": "forge install",
-    "prepare": "husky"
+    "postinstall": "forge install"
   },
   "repository": {
     "type": "git",
