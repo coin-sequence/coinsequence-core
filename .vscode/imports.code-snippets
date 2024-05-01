@@ -1,0 +1,50 @@
+{
+    "Import Engine Interface": {
+        "scope": "solidity",
+        "prefix": "importEngineI",
+        "body": "import {IEngine} from \"src/interfaces/IEngine.sol\";",
+        "description": "Import Engine Interface",
+    },
+    "Import CTF Interface": {
+        "scope": "solidity",
+        "prefix": "importCTFI",
+        "body": "import {ICTF} from \"src/interfaces/ICTF.sol\";",
+        "description": "Import CTF Interface"
+    },
+    "Import Functions Request Params Struct": {
+        "scope": "solidity",
+        "prefix": "importFunctionsRequest",
+        "body": "import {FunctionsRequestParams} from \"src/types/FunctionsRequestParams.sol\";",
+        "description": "Import Functions Request params struct"
+    },
+    "Import Functions Request Status Enum": {
+        "scope": "solidity",
+        "prefix": "importFunctionsRequestStatus",
+        "body": "import {FunctionsRequestStatus} from \"src/types/FunctionsRequestStatus.sol\";",
+        "description": "Import Functions Request Status Enum"
+    },
+    "Import Safe Functions Request Status Library": {
+        "scope": "solidity",
+        "prefix": "importSafeFunctionsRequestStatus",
+        "body": "import {SafeFunctionsRequestStatus} from \"src/libraries/SafeFunctionsRequestStatus.sol\";",
+        "description": "Import Safe Functions Request Status Library"
+    },
+    "Import Deposit Struct": {
+        "scope": "solidity",
+        "prefix": "importDeposit",
+        "body": "import {Deposit} from \"src/types/Deposit.sol\";",
+        "description": "Import Deposit Struct"
+    },
+    "Import Safe Chain Id Library": {
+        "scope": "solidity",
+        "prefix": "importSafeChainId",
+        "body": "import {SafeChainId} from \"src/libraries/SafeChainId.sol\";",
+        "description": "Import Safe Chain Id Library"
+    },
+    "Import Network Helper Library": {
+        "scope": "solidity",
+        "prefix": "importNetworkHelper",
+        "body": "import {NetworkHelper} from \"script/helpers/NetworkHelper.sol\";",
+        "description": "Import Network Helper Library"
+    }
+}

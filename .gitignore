@@ -3,6 +3,8 @@ out/
 docs/
 .env
 node_modules
+coverage
+
 
 # Ignores development broadcast logs
 !/broadcast

@@ -2,4 +2,13 @@
   "solidity.packageDefaultDependenciesContractsDirectory": "src",
   "solidity.packageDefaultDependenciesDirectory": "lib",
   "solidity.formatter": "prettier",
+  "solidity.monoRepoSupport": false,
+  "solidity.remappings": [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts=lib/openzeppelin-contracts/contracts",
+    "@chainlink/contracts=lib/chainlink/contracts"
+  ],
+  "[solidity]": {
+  "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
 }

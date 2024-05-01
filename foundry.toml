@@ -4,7 +4,8 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.25"
 evm_version = "cancun"
-remappings = ['@openzeppelin/contracts=lib/openzeppelin-contracts/contracts']
+remappings = []
+fs_permissions = [{ access = "read", path = "./functions" }]
 
 [fuzz]
 runs = 1000
@@ -19,5 +20,11 @@ extra_output = ["storageLayout", "metadata"]
 runs = 256
 depth = 32
 fail_on_revert = true
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+
+[rpc_endpoints]
+sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
