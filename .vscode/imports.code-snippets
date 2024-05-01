@@ -28,5 +28,23 @@
         "prefix": "importSafeFunctionsRequestStatus",
         "body": "import {SafeFunctionsRequestStatus} from \"src/libraries/SafeFunctionsRequestStatus.sol\";",
         "description": "Import Safe Functions Request Status Library"
+    },
+    "Import Deposit Struct": {
+        "scope": "solidity",
+        "prefix": "importDeposit",
+        "body": "import {Deposit} from \"src/types/Deposit.sol\";",
+        "description": "Import Deposit Struct"
+    },
+    "Import Safe Chain Id Library": {
+        "scope": "solidity",
+        "prefix": "importSafeChainId",
+        "body": "import {SafeChainId} from \"src/libraries/SafeChainId.sol\";",
+        "description": "Import Safe Chain Id Library"
+    },
+    "Import Network Helper Library": {
+        "scope": "solidity",
+        "prefix": "importNetworkHelper",
+        "body": "import {NetworkHelper} from \"script/helpers/NetworkHelper.sol\";",
+        "description": "Import Network Helper Library"
     }
 }

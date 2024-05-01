@@ -8,6 +8,7 @@ import {FunctionsClient, FunctionsRequest} from "@chainlink/contracts/src/v0.8/f
 import {AccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol"; // solhint-disable-line max-line-length
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {SafeFunctionsRequestStatus, FunctionsRequestStatus} from "src/libraries/SafeFunctionsRequestStatus.sol";
+import {Deposit} from "src/types/Deposit.sol";
 
 /// @dev This contract is used to control the CTFs deposits and withdrawals.
 contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
@@ -17,10 +18,10 @@ contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
 	using Strings for address;
 	using SafeFunctionsRequestStatus for FunctionsRequestStatus;
 
-	bytes32 public constant SWAPPER_ROLE = "SWAPPER";
+	bytes32 private constant SWAPPER_ROLE = "SWAPPER";
 
 	FunctionsRequestParams private s_functionsRequestParams;
-	mapping(bytes32 requestId => FunctionsRequestStatus status) private s_functionsRequests;
+	mapping(bytes32 requestId => Deposit deposit) private s_functionsRequests;
 
 	/// @dev as the roles are not initialized in the constructor(only the admin is),
 	/// after the contract deployment, make sure to ask the admin wallet
@@ -66,7 +67,13 @@ contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
 			functionsRequestParams.donId
 		);
 
-		s_functionsRequests[requestId] = FunctionsRequestStatus.REQUESTED;
+		s_functionsRequests[requestId] = Deposit({
+			user: msg.sender,
+			ctf: outputCTF,
+			inputToken: inputToken,
+			inputTokenAmount: inputTokenAmount,
+			requestStatus: FunctionsRequestStatus.REQUESTED
+		});
 
 		emit Engine__RequestedDeposit(requestId, msg.sender, address(outputCTF));
 	}
@@ -77,22 +84,25 @@ contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
 		bytes32 requestId,
 		bytes calldata swapCalldata
 	) external override onlyRole(SWAPPER_ROLE) {
-		FunctionsRequestStatus requestStatus = s_functionsRequests[requestId];
+		Deposit memory userDeposit = s_functionsRequests[requestId];
 
 		if (swapContract == address(0)) revert Engine__InvalidSwapContract();
 
-		if (!requestStatus._isRequested()) {
+		if (!userDeposit.requestStatus.isRequested()) {
 			// solhint-disable-next-line chainlink-solidity/no-block-single-if-reverts
-			revert Engine__RequestStatusMismatch({expected: FunctionsRequestStatus.REQUESTED, actual: requestStatus});
+			revert Engine__RequestStatusMismatch({
+				expected: FunctionsRequestStatus.REQUESTED,
+				actual: userDeposit.requestStatus
+			});
 		}
+
+		emit Engine__TokensSwapped(swapContract, swapCalldata);
+
+		userDeposit.inputToken.forceApprove(swapContract, userDeposit.inputTokenAmount);
 
 		//slither-disable-next-line low-level-calls
 		(bool success, ) = swapContract.call(swapCalldata); // solhint-disable-line avoid-low-level-calls
-
 		if (!success) revert Engine__SwapFailed();
-
-		//slither-disable-next-line reentrancy-events
-		emit Engine__TokensSwapped();
 	}
 
 	/// @notice Set the Chainlink Functions request Params.
@@ -101,16 +111,38 @@ contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
 		s_functionsRequestParams = params;
 	}
 
+	/// @notice Get the current Chainlink Functions request Params.
+	function getFunctionsRequestParams() external view returns (FunctionsRequestParams memory) {
+		return s_functionsRequestParams;
+	}
+
 	// solhint-disable-next-line chainlink-solidity/prefix-internal-functions-with-underscore
 	function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal virtual override {
-		if (!s_functionsRequests[requestId]._isRequested()) {
+		Deposit memory userDeposit = s_functionsRequests[requestId];
+
+		if (!userDeposit.requestStatus.isRequested()) {
 			// solhint-disable-next-line chainlink-solidity/no-block-single-if-reverts
 			revert Engine__RequestStatusMismatch({
 				expected: FunctionsRequestStatus.REQUESTED,
-				actual: s_functionsRequests[requestId]
+				actual: userDeposit.requestStatus
 			});
 		}
 
-		if (err.length > 0) {}
+		if (err.length > 0) {
+			s_functionsRequests[requestId].requestStatus = FunctionsRequestStatus.FAILED;
+			userDeposit.inputToken.safeTransfer(userDeposit.user, userDeposit.inputTokenAmount);
+			return;
+		}
+
+		uint256 mintAmount = abi.decode(response, (uint256));
+		emit Engine__UserDeposited(
+			userDeposit.user,
+			address(userDeposit.ctf),
+			address(userDeposit.inputToken),
+			mintAmount,
+			userDeposit.inputTokenAmount
+		);
+
+		userDeposit.ctf.mint(mintAmount, userDeposit.user);
 	}
 }

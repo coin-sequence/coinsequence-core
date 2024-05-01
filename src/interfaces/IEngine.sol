@@ -13,8 +13,22 @@ interface IEngine {
 	/// @param ctf The target CTF address to deposit funds
 	event Engine__RequestedDeposit(bytes32 indexed requestId, address indexed user, address indexed ctf);
 
+	/// @notice Emitted when the user successfully deposited funds into the CTF and received the CTF Token
+	/// @param user The address of the user who deposited funds
+	/// @param ctf the CTF token address received by the user
+	/// @param inputToken The address of the user input token
+	event Engine__UserDeposited(
+		address indexed user,
+		address indexed ctf,
+		address indexed inputToken,
+		uint256 mintedAmount,
+		uint256 inputTokenAmount
+	);
+
 	/// @notice Emitted when the call to swap the user input token to the CTF Underlying Token succeeds
-	event Engine__TokensSwapped();
+	/// @param swapContract The address of the contract used to swap the tokens
+	/// @param swapCalldata the calldata which was passed to the swap contract
+	event Engine__TokensSwapped(address indexed swapContract, bytes indexed swapCalldata);
 
 	/// @notice Thrown when the call to swap the user input token to the CTF Underlying Token fails
 	error Engine__SwapFailed();
@@ -34,10 +48,9 @@ interface IEngine {
 	function deposit(ICTF outputCTF, IERC20 inputToken, uint256 inputTokenAmount) external;
 
 	/// @notice external call to swap the user input tokens for the CTF Underlying Tokens.
+	/// Only Wallets with the Swapper role will be able to perform this call
 	/// @param swapContract The address of the contract which will perform the swap
 	/// @param swapCalldata the calldata to pass to the swap contract
 	/// @param requestId The Chainlink Functions Request ID
-	/// @dev Only Wallets with the Swapper role will be able to perform this call
-	/// @dev If the Request ID status is not "REQUESTED" an error should be be thrown.
 	function swap(address swapContract, bytes32 requestId, bytes calldata swapCalldata) external;
 }

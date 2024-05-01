@@ -3,20 +3,21 @@ pragma solidity 0.8.25;
 
 import {FunctionsRequestStatus} from "src/types/FunctionsRequestStatus.sol";
 
+// solhint-disable chainlink-solidity/prefix-internal-functions-with-underscore
 library SafeFunctionsRequestStatus {
-	function _isUnknown(FunctionsRequestStatus status) internal pure returns (bool) {
+	function isUnknown(FunctionsRequestStatus status) internal pure returns (bool) {
 		return status == FunctionsRequestStatus.UNKNOWN;
 	}
 
-	function _isRequested(FunctionsRequestStatus status) internal pure returns (bool) {
+	function isRequested(FunctionsRequestStatus status) internal pure returns (bool) {
 		return status == FunctionsRequestStatus.REQUESTED;
 	}
 
-	function _isSucceeded(FunctionsRequestStatus status) internal pure returns (bool) {
+	function isSucceeded(FunctionsRequestStatus status) internal pure returns (bool) {
 		return status == FunctionsRequestStatus.SUCCEEDED;
 	}
 
-	function _isFailed(FunctionsRequestStatus status) internal pure returns (bool) {
+	function isFailed(FunctionsRequestStatus status) internal pure returns (bool) {
 		return status == FunctionsRequestStatus.FAILED;
 	}
 }

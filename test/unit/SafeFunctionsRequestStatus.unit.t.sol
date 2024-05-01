@@ -5,51 +5,51 @@ import {Test} from "forge-std/Test.sol";
 import {SafeFunctionsRequestStatus, FunctionsRequestStatus} from "src/libraries/SafeFunctionsRequestStatus.sol";
 
 contract SafeFunctionsRequestUnitTest is Test {
-	function test_isUnknown__returnsTrue() external pure {
+	function test_isUnknown_returnsTrue() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.UNKNOWN;
 
-		assertTrue(SafeFunctionsRequestStatus._isUnknown(status));
+		assertTrue(SafeFunctionsRequestStatus.isUnknown(status));
 	}
 
-	function test_isRequested__returnsTrue() external pure {
+	function test_isRequested_returnsTrue() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.REQUESTED;
 
-		assertTrue(SafeFunctionsRequestStatus._isRequested(status));
+		assertTrue(SafeFunctionsRequestStatus.isRequested(status));
 	}
 
-	function test_isSucceeded__returnsTrue() external pure {
+	function test_isSucceeded_returnsTrue() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.SUCCEEDED;
 
-		assertTrue(SafeFunctionsRequestStatus._isSucceeded(status));
+		assertTrue(SafeFunctionsRequestStatus.isSucceeded(status));
 	}
 
-	function test_isFailed__returnsTrue() external pure {
+	function test_isFailed_returnsTrue() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.FAILED;
 
-		assertTrue(SafeFunctionsRequestStatus._isFailed(status));
+		assertTrue(SafeFunctionsRequestStatus.isFailed(status));
 	}
 
-	function test_isUnknown__returnsFalse() external pure {
+	function test_isUnknown_returnsFalse() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.SUCCEEDED;
 
-		assertFalse(SafeFunctionsRequestStatus._isUnknown(status));
+		assertFalse(SafeFunctionsRequestStatus.isUnknown(status));
 	}
 
-	function test_isRequested__returnsFalse() external pure {
+	function test_isRequested_returnsFalse() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.UNKNOWN;
 
-		assertFalse(SafeFunctionsRequestStatus._isRequested(status));
+		assertFalse(SafeFunctionsRequestStatus.isRequested(status));
 	}
 
-	function test_isSucceeded__returnsFalse() external pure {
+	function test_isSucceeded_returnsFalse() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.FAILED;
 
-		assertFalse(SafeFunctionsRequestStatus._isSucceeded(status));
+		assertFalse(SafeFunctionsRequestStatus.isSucceeded(status));
 	}
 
-	function test_isFailed__returnsFalse() external pure {
+	function test_isFailed_returnsFalse() external pure {
 		FunctionsRequestStatus status = FunctionsRequestStatus.REQUESTED;
 
-		assertFalse(SafeFunctionsRequestStatus._isFailed(status));
+		assertFalse(SafeFunctionsRequestStatus.isFailed(status));
 	}
 }
