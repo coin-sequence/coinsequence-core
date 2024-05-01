@@ -31,6 +31,6 @@ contract DeployEngineUnitTest is Test {
 	function test_deployEngine_setRightAddressAsAdmin() external {
 		Engine engine = new DeployEngine().run();
 
-		assertEq(engine.defaultAdmin(), 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "Engine Admin address does not match");
+		assertEq(engine.defaultAdmin(), address(1), "Engine Admin address does not match");
 	}
 }
