@@ -5,10 +5,16 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ICTF} from "src/interfaces/ICTF.sol";
 
 contract CTF is ERC20, ICTF {
-	address private immutable i_engine;
+	// address private immutable i_engine;
 	address[] private s_underlyingTokens;
 
-	constructor(string memory _name, string memory _symbol, address[] memory underlyingTokens) ERC20(_name, _symbol) {
+	constructor(
+		string memory _name,
+		string memory _symbol,
+		// address engine,
+		address[] memory underlyingTokens
+	) ERC20(_name, _symbol) {
+		// i_engine = engine;
 		s_underlyingTokens = underlyingTokens;
 	}
 
