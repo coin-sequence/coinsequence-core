@@ -1,2 +1,5 @@
 #!/usr/bin/env sh
-npm run lint -- --max-warnings 0
+if ! npm run lint -- --max-warnings 0; then
+ echo "Linter found warnings. Please fix them before committing."
+ exit 1
+fi
