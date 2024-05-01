@@ -143,6 +143,8 @@ contract Engine is IEngine, FunctionsClient, AccessControlDefaultAdminRules {
 			userDeposit.inputTokenAmount
 		);
 
+		s_functionsRequests[requestId].requestStatus = FunctionsRequestStatus.SUCCEEDED;
+
 		userDeposit.ctf.mint(mintAmount, userDeposit.user);
 	}
 }
