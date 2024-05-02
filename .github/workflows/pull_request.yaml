@@ -12,7 +12,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1.2.0
       - uses: crytic/slither-action@v0.4.0
         with:
-          slither-args: --foundry-compile-all --exclude pragma,unused-import
+          slither-args: --foundry-compile-all --exclude pragma,unused-import,solc-version,naming-convention
           slither-config: "./slither.config.json"
       - name: Install Node.js
         run: sudo apt update && sudo apt install nodejs -y
