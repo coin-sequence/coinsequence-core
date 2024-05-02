@@ -13,7 +13,7 @@ jobs:
       - uses: crytic/slither-action@v0.4.0
         with:
           slither-args: --foundry-compile-all"
-          slither-config: ../../slither-config.json
+          slither-config: ../../slither.config.json
       - name: Install Node.js
         run: sudo apt update && sudo apt install nodejs -y
 
