@@ -1,6 +1,6 @@
-## CTF Core
+## Coin Sequence Core
 
-This repository contains all the source code of the Smart Contracts for the CTF Tokens
+This repository contains all the source code of the Core Smart Contracts for the Coin Sequence App
 
 ## Dependencies
 
