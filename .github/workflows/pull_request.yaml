@@ -8,12 +8,11 @@ jobs:
     name: Run Code Quality Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: foundry-rs/foundry-toolchain@v1.2.0
-      - uses: crytic/slither-action@v0.4.0
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1.2.0
         with:
-          slither-args: --foundry-compile-all --exclude pragma,unused-import,solc-version,naming-convention
-          slither-config: "./slither.config.json"
+          cache: false
+
       - name: Install Node.js
         run: sudo apt update && sudo apt install nodejs -y
 
@@ -25,3 +24,9 @@ jobs:
 
       - name: Run tests
         run: sudo npm test
+
+      - name: Run slither
+        uses: crytic/slither-action@v0.4.0
+        with:
+          slither-args: --foundry-compile-all --exclude pragma,unused-import,solc-version,naming-convention
+          slither-config: "./slither.config.json"
