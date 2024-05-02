@@ -12,8 +12,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1.2.0
       - uses: crytic/slither-action@v0.4.0
         with:
-          slither-config: ./slither.config.json
-          slither-args: --foundry-compile-all
+          slither-args: --foundry-compile-all --filter-paths "(mocks/|test/|script/|upgradedProtocol/|lib/)"
       - name: Install Node.js
         run: sudo apt update && sudo apt install nodejs -y
 
@@ -25,6 +24,3 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-      - name: Run static analysis
-        run: npm run analyze

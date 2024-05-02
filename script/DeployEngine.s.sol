@@ -2,7 +2,6 @@
 pragma solidity 0.8.25;
 
 import {Script} from "forge-std/Script.sol";
-import {IEngine} from "src/interfaces/IEngine.sol";
 import {Engine} from "src/contracts/Engine.sol";
 import {NetworkHelper} from "script/helpers/NetworkHelper.sol";
 
