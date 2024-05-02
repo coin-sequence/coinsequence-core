@@ -11,15 +11,11 @@
   },
   "scripts": {
     "lint": "solhint 'src/**/*.sol' --max-warnings 0",
-    "test": "bash script/shell/test.sh",
+    "test": "forge test -vvv",
     "analyze": "slither . --foundry-compile-all",
-    "gen-coverage": "forge coverage --ast --report lcov --report-file coverage/lcov.info --silent && npm run gen-coverage-html",
-    "gen-coverage-html": "genhtml coverage/lcov.info -o coverage/html/ --quiet --ignore-errors inconsistent",
-    "open-coverage": "open coverage/html/index.html",
     "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
-    "postinstall": "forge install",
-    "prepare": "husky"
+    "postinstall": "forge install"
   },
   "repository": {
     "type": "git",

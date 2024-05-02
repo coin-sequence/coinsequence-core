@@ -1,0 +1,30 @@
+name: Pull Request
+
+on:
+  pull_request:
+
+jobs:
+  check:
+    name: Run Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1.2.0
+
+      - name: Install Node.js
+        run: sudo apt update && sudo apt install nodejs -y
+
+      - name: Run npm install
+        run: npm install
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run slither
+        uses: crytic/slither-action@v0.4.0
+        with:
+          slither-args: --foundry-compile-all --exclude pragma,unused-import,solc-version,naming-convention
+          slither-config: "./slither.config.json"

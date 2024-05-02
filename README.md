@@ -41,8 +41,6 @@ You can run all tests by running
 npm run test
 ```
 
-⚠️ If all tests pass, it will also open the coverage report.
-
 ### Linting
 
 You can run the solhint linter by running
