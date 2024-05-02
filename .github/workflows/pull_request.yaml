@@ -9,25 +9,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1.2.0
-        with:
-          cache: false
-
-      - name: Test Foundry Installed
-        run: forge --version
+      - uses: foundry-rs/foundry-toolchain@v1.2.0
 
       - name: Install Node.js
         run: sudo apt update && sudo apt install nodejs -y
 
       - name: Run npm install
-        run: sudo npm install
+        run: npm install
 
       - name: Run linter
-        run: sudo npm run lint
+        run: npm run lint
 
       - name: Run tests
-        run: sudo npm test
+        run: npm test
 
       - name: Run slither
         uses: crytic/slither-action@v0.4.0
