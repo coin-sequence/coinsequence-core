@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {SafeChainId} from "src/libraries/SafeChainId.sol";
+import {SafeChain} from "src/libraries/SafeChain.sol";
 
 library NetworkHelper {
-	using SafeChainId for uint256;
+	using SafeChain for uint256;
 	struct NetworkConfig {
 		uint256 chainId;
 		address functionsRouter;

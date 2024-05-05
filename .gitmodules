@@ -7,3 +7,6 @@
 [submodule "lib/chainlink"]
 	path = lib/chainlink
 	url = https://github.com/smartcontractkit/chainlink
+[submodule "lib/balancer-v2-monorepo"]
+	path = lib/balancer-v2-monorepo
+	url = https://github.com/balancer/balancer-v2-monorepo
