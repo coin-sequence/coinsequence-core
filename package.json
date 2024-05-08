@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "V1 Core Smart contracts of CTF Tokens",
   "devDependencies": {
+    "@balancer-labs/v2-interfaces": "^0.4.0",
+    "@chainlink/contracts-ccip": "^1.4.0",
     "husky": "^9.0.11",
     "solhint": "^4.5.4",
     "solhint-plugin-chainlink-solidity": "npm:@chainlink/solhint-plugin-chainlink-solidity@^1.0.1",

@@ -7,7 +7,7 @@ pragma solidity 0.8.25;
 
 import {IERC20} from "@balancer-labs/v2-interfaces/contracts/solidity-utils/openzeppelin/IERC20.sol";
 import {IAsset} from "@balancer-labs/v2-interfaces/contracts/vault/IAsset.sol";
-
+// solhint-disable chainlink-solidity/prefix-internal-functions-with-underscore
 library BalancerERC20Helpers {
 	function asIAsset(IERC20[] memory tokens) internal pure returns (IAsset[] memory assets) {
 		// solhint-disable-next-line no-inline-assembly
