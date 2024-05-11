@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-enum CSRouterCTFRequestType {
-	MINT,
-	BURN
+enum CrossChainRequestType {
+	CREATE_POOL,
+	ADD_TOKEN
 }

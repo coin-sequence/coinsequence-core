@@ -2,35 +2,18 @@
 pragma solidity 0.8.25;
 
 interface ICTF {
-	/// @param poolId the balancer pool id for the given network
-	/// @param pool the balancer pool address for the given network
-	/// @param chainSelector the CCIP chain selector for the given network
-	struct NetworkInfo {
-		bytes32 poolId;
-		address pool;
-		uint64 chainSelector;
-	}
+	/// @notice emitted when Cross-Chain underlying tokens are added to the CTF
+	event RequestedToAddUnderlyingTokensCrossChain(address[] tokens, uint256[] chains);
 
-	/**
-	 * @notice mint CTF Tokens to the user immediaely if the CTF is not Cross-Chain.
-	 * In the case of the CTF Being Cross-Chain, the CTF will wait for all the chains confirmation
-	 * Before releasing the tokens for the user
-	 * @param to the address to mint to
-	 * @param amount the amount to mint(with decimals)
-	 *  */
-	function mint(address to, uint256 amount) external;
+	/// @notice emitted when Same-Chain underlying tokens are added to the CTF
+	event AddedUnderlyingTokensSameChain(address[] tokens);
 
-	/// @notice get the balancer pool id for a given chain
-	/// @param chainId the id of the chain to get the info
-	/// @return networkInfo the network info for the given chain
-	function getNetworkInfo(uint256 chainId) external view returns (NetworkInfo memory networkInfo);
+	/// @notice thrown if the underlying tokens array and chains array have different lengths
+	error CTF__TokensAndChainsMismatch(uint256 tokens, uint256 chains);
 
-	/**
-	 * @notice get the list of chain ids for the CTF underlying tokens
-	 *
-	 * e.g: Let's say we have 3 Underlying Tokens, 2 on OP and the other on Polygon
-	 * this will return 2 chain ids, 1 for OP and 1 for Polygon, as all tokens are
-	 * distributed in 2 chains
-	 * */
-	function underlyingTokensChains() external view returns (uint256[] memory);
+	/// @notice thrown when try to add a new underlying token, but the token is already added
+	error CTF__TokenAlreadyAdded(address token);
+
+	/// @notice thrown when try to add a token to a pool, but the pool is not created
+	error CTF_PoolNotCreated();
 }

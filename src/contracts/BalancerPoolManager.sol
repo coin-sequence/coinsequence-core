@@ -6,14 +6,18 @@ import {IERC20 as OpenZeppelinIERC20} from "@openzeppelin/contracts/token/ERC20/
 import {IVault, IERC20 as BalancerIERC20} from "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WeightedPoolUserData} from "@balancer-labs/v2-interfaces/contracts/pool-weighted/WeightedPoolUserData.sol";
+import {IBalancerManagedPoolFactoryV2} from "src/interfaces/IBalancerManagedPoolFactoryV2.sol";
+import {ProtocolFeeType} from "@balancer-labs/v2-interfaces/contracts/standalone-utils/IProtocolFeePercentagesProvider.sol"; //solhint-disable-line max-line-length
+import {IManagedPool} from "@balancer-labs/v2-interfaces/contracts/pool-utils/IManagedPool.sol";
 
-abstract contract CSBalancerPoolManager {
+abstract contract BalancerPoolManager {
 	using BalancerERC20Helpers for BalancerIERC20[];
 
 	IVault private immutable i_vault;
+	IBalancerManagedPoolFactoryV2 private immutable i_managedPoolFactory;
 
 	/// @notice Emitted once the Tokens are successfully deposited into Balancer
-	event CSBalancerPoolManager__Deposited(bytes32 poolId);
+	event BalancerPoolManager__Deposited(bytes32 poolId);
 
 	/**
 	 * @notice thrown when try to deposit tokens to balancer, but one of the tokens balance is zero.
@@ -21,19 +25,65 @@ abstract contract CSBalancerPoolManager {
 	 * Can be interpreted as a failure in the swap from USDC to Pool tokens. The deposit Function
 	 * should only be called after swapping the USDC to the Pool Tokens.
 	 * */
-	error CSBalancerPoolManager__PoolTokenBalanceIsZero(address token);
+	error BalancerPoolManager__PoolTokenBalanceIsZero(address token);
 
 	/// @notice thrown when try to deposit tokens to balancer, but the minBPTOut param is zero.
-	error CSBalancerPoolManager__MinBPTOutIsZero();
+	error BalancerPoolManager__MinBPTOutIsZero();
 
-	constructor(address balancerVault) {
+	constructor(address balancerManagedPoolFactory, address balancerVault) {
 		i_vault = IVault(balancerVault);
+		i_managedPoolFactory = IBalancerManagedPoolFactoryV2(balancerManagedPoolFactory);
+	}
+
+	function _createPool(
+		string memory name,
+		string memory symbol,
+		OpenZeppelinIERC20[] memory initialTokens
+	) internal returns (address poolAddress, bytes32 poolId) {
+		uint256 initialTokensLength = initialTokens.length;
+		address[] memory assetManagers = new address[](1);
+		uint256[] memory initialNormalizedWeights = new uint256[](initialTokens.length);
+
+		assetManagers[0] = address(this);
+
+		for (uint256 i = 0; i < initialTokensLength; ) {
+			// set equal weight for all tokens
+			initialNormalizedWeights[i] = 1e18 / (initialTokensLength * 1 ** 10);
+
+			unchecked {
+				++i;
+			}
+		}
+
+		IBalancerManagedPoolFactoryV2.ManagedPoolParams memory params = IBalancerManagedPoolFactoryV2.ManagedPoolParams({
+			name: name,
+			symbol: symbol,
+			assetManagers: assetManagers
+		});
+
+		IBalancerManagedPoolFactoryV2.ManagedPoolSettingsParams memory settingsParams = IBalancerManagedPoolFactoryV2
+			.ManagedPoolSettingsParams({
+				tokens: initialTokens,
+				normalizedWeights: initialNormalizedWeights,
+				swapFeePercentage: 0,
+				swapEnabledOnStart: false,
+				mustAllowlistLPs: true,
+				managementAumFeePercentage: 0,
+				aumFeeId: ProtocolFeeType.AUM
+			});
+
+		address _poolAddress = i_managedPoolFactory.create(params, settingsParams, address(this), bytes32(0));
+		IManagedPool pool = IManagedPool(_poolAddress);
+		bytes32 _poolId = pool.getPoolId();
+
+		pool.addAllowedAddress(address(this)); // TODO: Test if need to add the contract itself
+
+		return (_poolAddress, _poolId);
 	}
 
 	//slither-disable-start calls-loop
-	/// @notice deposit pool tokens into balancer
 	function _depositTokensToBalancer(bytes32 poolId, uint256 minBPTOut) internal {
-		if (minBPTOut == 0) revert CSBalancerPoolManager__MinBPTOutIsZero();
+		if (minBPTOut == 0) revert BalancerPoolManager__MinBPTOutIsZero();
 
 		//slither-disable-next-line unused-return
 		(BalancerIERC20[] memory poolTokens, , ) = i_vault.getPoolTokens(poolId);
@@ -46,7 +96,7 @@ abstract contract CSBalancerPoolManager {
 
 			uint256 maxAmountIn = poolToken.balanceOf(address(this));
 
-			if (maxAmountIn < 1) revert CSBalancerPoolManager__PoolTokenBalanceIsZero(address(poolToken));
+			if (maxAmountIn < 1) revert BalancerPoolManager__PoolTokenBalanceIsZero(address(poolToken));
 
 			maxAmountsIn[i] = maxAmountIn;
 			SafeERC20.forceApprove(poolTokenAsOpenZeppelinIERC20, address(i_vault), maxAmountIn);
@@ -68,7 +118,7 @@ abstract contract CSBalancerPoolManager {
 		i_vault.joinPool({poolId: poolId, sender: address(this), recipient: address(this), request: joinPoolRequest});
 
 		//slither-disable-next-line reentrancy-events
-		emit CSBalancerPoolManager__Deposited(poolId);
+		emit BalancerPoolManager__Deposited(poolId);
 	}
 	// slither-disable-end calls-loop
 

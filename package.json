@@ -17,7 +17,7 @@
     "analyze": "slither . --foundry-compile-all",
     "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
-    "postinstall": "forge install"
+    "postinstall": "forge install && pip install slitherin"
   },
   "repository": {
     "type": "git",
