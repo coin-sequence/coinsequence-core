@@ -2,6 +2,9 @@
   "name": "ctf-core",
   "version": "1.0.0",
   "description": "V1 Core Smart contracts of CTF Tokens",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "devDependencies": {
     "@balancer-labs/v2-interfaces": "^0.4.0",
     "@chainlink/contracts-ccip": "^1.4.0",
@@ -14,10 +17,10 @@
   "scripts": {
     "lint": "solhint 'src/**/*.sol' --max-warnings 0",
     "test": "forge test -vvv",
-    "analyze": "slither . --foundry-compile-all",
+    "analyze": "slither .",
     "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
-    "postinstall": "forge install && pip install slitherin"
+    "postinstall": "forge install"
   },
   "repository": {
     "type": "git",

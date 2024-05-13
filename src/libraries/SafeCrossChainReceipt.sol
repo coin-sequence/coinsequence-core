@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
+// solhint-disable chainlink-solidity/prefix-internal-functions-with-underscore
 pragma solidity 0.8.25;
 
-import {Receipt} from "src/libraries/Receipt.sol";
+import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 
 library SafeCrossChainReceipt {
-	function isSuccess(Receipt.CrossChainReceiptType receiptType) internal pure returns (bool) {
-		return receiptType == Receipt.CrossChainReceiptType.SUCCESS;
+	function isSuccess(RequestReceipt.CrossChainReceiptType receiptType) internal pure returns (bool) {
+		return receiptType == RequestReceipt.CrossChainReceiptType.SUCCESS;
 	}
 
-	function isFailure(Receipt.CrossChainReceiptType receiptType) internal pure returns (bool) {
-		return receiptType == Receipt.CrossChainReceiptType.FAILURE;
+	function isFailure(RequestReceipt.CrossChainReceiptType receiptType) internal pure returns (bool) {
+		return receiptType == RequestReceipt.CrossChainReceiptType.FAILURE;
 	}
 
-	function isPoolCreated(Receipt.CrossChainSuccessReceiptType successReceiptType) internal pure returns (bool) {
-		return successReceiptType == Receipt.CrossChainSuccessReceiptType.POOL_CREATED;
+	function isPoolCreated(RequestReceipt.CrossChainSuccessReceiptType successReceiptType) internal pure returns (bool) {
+		return successReceiptType == RequestReceipt.CrossChainSuccessReceiptType.POOL_CREATED;
 	}
 }

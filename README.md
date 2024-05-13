@@ -24,12 +24,10 @@ This repository contains all the source code of the Core Smart Contracts for the
   - To know if npm is installed, run `npm --version` you should see a response like `x.x.x`.
   - If npm is not installed, head over to [Downloading and installing Node.js and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
-- **Slither + Slitherin**
+- **Slither**
 
   - To know if Slither is installed, run `slither --version` you should see a response like `x.x.x`.
   - If Slither is not installed, head over to [How to install Slither](https://github.com/crytic/slither?tab=readme-ov-file#how-to-install)
-
-  - To know if Slitherin is installed, run `slitherin --version` you should see a response like `x.x.x`.
 
 ## Getting Started
 

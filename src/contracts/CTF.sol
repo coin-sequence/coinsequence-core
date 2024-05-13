@@ -25,7 +25,7 @@ contract CTF is ICTF, PoolManager, ERC20Permit {
 	mapping(uint256 chainId => address[] tokens) private s_chainTokensToBeAdded;
 
 	address[] private s_underlyingTokens;
-	uint256[] private s_chains; // TODO: Check if need to be a state variable
+	uint256[] private s_chains;
 	EnumerableSet.UintSet private s_chainsSet;
 
 	constructor(
@@ -50,7 +50,10 @@ contract CTF is ICTF, PoolManager, ERC20Permit {
 	 *
 	 * @custom:note If the pool for the given chain is not created yet, it will be created.
 	 *  */
-	function addUnderlyingTokensCrossChain(address[] calldata underlyingTokens, uint256[] calldata chains) external onlyOwner {
+	function addUnderlyingTokensCrossChain(
+		address[] calldata underlyingTokens,
+		uint256[] calldata chains
+	) external onlyRole(TOKENS_MANAGER_ROLE) {
 		uint256 underlyingTokensLength = underlyingTokens.length;
 
 		if (chains.length != underlyingTokensLength) {
@@ -73,12 +76,14 @@ contract CTF is ICTF, PoolManager, ERC20Permit {
 			ChainPool memory chainPool = _getPool(tokenChain);
 
 			if (chainPool.status == PoolStatus.NOT_CREATED) {
+				//slither-disable-next-line reentrancy-eth
 				_requestNewPoolCreation({
 					poolName: string.concat(name(), " ", "Pool"),
 					chainId: tokenChain,
 					tokens: s_chainTokensToBeAdded[tokenChain]
 				});
 
+				//slither-disable-next-line costly-loop
 				delete s_chainTokensToBeAdded[tokenChain];
 			} else if (chainPool.status == PoolStatus.ACTIVE) {
 				_requestTokenAddition({chainId: tokenChain, token: underlyingTokens[i], pool: chainPool.poolAddress});
@@ -89,34 +94,23 @@ contract CTF is ICTF, PoolManager, ERC20Permit {
 			}
 		}
 
-		emit RequestedToAddUnderlyingTokensCrossChain(underlyingTokens, chains);
+		emit CTF__RequestedToAddUnderlyingTokensCrossChain(underlyingTokens, chains);
+	}
+
+	function getChainUnderlyingTokens(uint256 chainId) external view returns (address[] memory) {
+		return s_chainUnderlyingTokens[chainId];
+	}
+
+	function getAllUnderlyingTokens() external view returns (address[] memory underlyingTokens, uint256[] memory chains) {
+		return (s_underlyingTokens, s_chains);
 	}
 
 	/**
 	 * @notice add underlying tokens for the same chain as the CTF.
 	 * If the pool is not created yet, it will be created.
-	 *
-	 *
-	 * @dev we use `s_chainUnderlyingTokens` here instead of `s_chainTokensToBeAdded`
-	 * because as this transaction is on the same chain, if any error occur,
-	 * it will just revert this whole transaction, different from the
-	 * `addUnderlyingTokensCrossChain` function, where the error can occur in another chain
-	 * and the transaction here have been completed already.
-	 *
-	 * Using `s_chainUnderlyingTokens` directly will save us some gas.
 	 *  */
-	function addUnderlyingTokensSameChain(address[] calldata underlyingTokens) external onlyOwner {
+	function addUnderlyingTokensSameChain(address[] calldata underlyingTokens) public onlyRole(TOKENS_MANAGER_ROLE) {
 		ChainPool memory chainPool = _getPool(block.chainid);
-		uint256 underlyingTokensLength = underlyingTokens.length;
-
-		for (uint256 i = 0; i < underlyingTokensLength; ) {
-			s_chainUnderlyingTokens[block.chainid].push(underlyingTokens[i]);
-			s_underlyingTokens.push(underlyingTokens[i]);
-
-			unchecked {
-				++i;
-			}
-		}
 
 		if (chainPool.status == PoolStatus.NOT_CREATED) {
 			_requestNewPoolCreation({poolName: string.concat(name(), " ", "Pool"), chainId: block.chainid, tokens: underlyingTokens});
@@ -124,10 +118,10 @@ contract CTF is ICTF, PoolManager, ERC20Permit {
 			_requestBatchTokenAddition({chainId: block.chainid, tokens: underlyingTokens, pool: chainPool.poolAddress});
 		}
 
-		emit AddedUnderlyingTokensSameChain(underlyingTokens);
+		emit CTF__AddedUnderlyingTokensSameChain(underlyingTokens);
 	}
 
-	function onCreatePool(uint256 chainId, address[] memory tokens) internal override {
+	function _onCreatePool(uint256 chainId, address[] memory tokens) internal override {
 		uint256 tokensLength = tokens.length;
 
 		for (uint256 i = 0; i < tokensLength; ) {

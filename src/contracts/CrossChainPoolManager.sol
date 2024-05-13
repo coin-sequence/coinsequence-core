@@ -7,16 +7,17 @@ import {SafeCrossChainRequestType, CrossChainRequestType} from "src/libraries/Sa
 import {CrossChainCreatePoolRequest} from "src/types/CrossChainCreatePoolRequest.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
-import {Receipt} from "src/libraries/Receipt.sol";
+import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
+contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Step {
 	using SafeCrossChainRequestType for CrossChainRequestType;
 	using Strings for uint256;
 	using CustomCast for address[];
 
 	struct CCIPReceipt {
-		Receipt.CrossChainReceipt receipt;
+		RequestReceipt.CrossChainReceipt receipt;
 		uint64 sourceChainSelector;
 		bytes sender;
 		bytes32 originMessageId;
@@ -34,7 +35,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 	/// @notice emitted once the receipt couldn't be sent by some reason
 	event CrossChainPoolManager__FailedToSendReceipt(
 		bytes32 indexed originMessageId,
-		Receipt.CrossChainReceiptType indexed receiptType,
+		RequestReceipt.CrossChainReceiptType indexed receiptType,
 		bytes errorData
 	);
 
@@ -42,7 +43,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 	event CrossChainPoolManager__ReceiptSent(
 		bytes32 indexed originMessageId,
 		bytes32 indexed receiptMessageId,
-		Receipt.CrossChainReceiptType indexed receiptType
+		RequestReceipt.CrossChainReceiptType indexed receiptType
 	);
 
 	/// @notice thrown when the ccip received message sender is not the CTF
@@ -57,6 +58,15 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 	/// @notice thrown when someone tries to re-send a receipt which didn't fail
 	error CrossChainPoolManager__CannotRetrySendReceipt(bytes32 originMessageId);
 
+	/// @notice thrown when the CTF address is invalid at the creation of the contract
+	error CrossChainPoolManager__InvalidCTFAddress();
+
+	/// @notice thrown when the CCIP Router Client address is invalid at the creation of the contract
+	error CrossChainPoolManager__InvalidCCIPRouterClient();
+
+	/// @notice thrown when the ETH witdraw fails for some reason
+	error CrossChainPoolManager__FailedToWithdrawETH(bytes errorData);
+
 	modifier onlySelf() {
 		if (msg.sender != address(this)) revert CrossChainPoolManager__OnlySelf(msg.sender);
 		_;
@@ -66,10 +76,28 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 		address ccipRouterClient,
 		address ctf,
 		address balancerManagedPoolFactory,
-		address balancerVault
-	) CCIPReceiver(ccipRouterClient) BalancerPoolManager(balancerManagedPoolFactory, balancerVault) {
+		address balancerVault,
+		address admin
+	) Ownable(admin) CCIPReceiver(ccipRouterClient) BalancerPoolManager(balancerManagedPoolFactory, balancerVault) {
+		if (ccipRouterClient == address(0) || ccipRouterClient.code.length == 0) revert CrossChainPoolManager__InvalidCCIPRouterClient();
+		if (ctf == address(0)) revert CrossChainPoolManager__InvalidCTFAddress();
+
 		i_CCIPRouterClient = ccipRouterClient;
 		i_CTF = ctf;
+	}
+
+	receive() external payable {}
+
+	/**
+	 * @notice withdraw ETH from the Contract. Only the admin can perform this action
+	 * @param amount amount of ETH to withdraw (with decimals)
+	 * @custom:note this only withdraw the ETH used to cover infrastructural costs,
+	 * Nothing is withdrawn from the Pool
+	 */
+	function withdrawETH(uint256 amount) external onlyOwner {
+		(bool success, bytes memory data) = owner().call{value: amount}("");
+
+		if (!success) revert CrossChainPoolManager__FailedToWithdrawETH(data);
 	}
 
 	/// @notice re-send a failed-to-send receipt
@@ -77,14 +105,14 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 		if (!s_receiptRetryAllowed[originMessageId]) revert CrossChainPoolManager__CannotRetrySendReceipt(originMessageId);
 		s_receiptRetryAllowed[originMessageId] = false;
 
-		return sendReceipt(s_receipts[originMessageId]);
+		return _rawSendReceipt(s_receipts[originMessageId]);
 	}
 
 	/**
 	 * 	@notice Process the CCIP Message received. It can only be called by the contract itself
 	 *  @dev We use this function as external to make it possible to use Try-Catch
 	 */
-	function processCCIPMessage(bytes32 messageId, bytes calldata data) external onlySelf returns (Receipt.CrossChainReceipt memory) {
+	function processCCIPMessage(bytes32 messageId, bytes calldata data) external onlySelf returns (RequestReceipt.CrossChainReceipt memory) {
 		CrossChainRequestType requestType = abi.decode(data, (CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
@@ -99,27 +127,24 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 	 * @notice Send the receipt back to the CTF. It can only be called by the contract itself
 	 * @dev We use this function as public to make it possible to use Try-Catch
 	 */
-	function sendReceipt(CCIPReceipt memory ccipReceipt) public onlySelf returns (bytes32 messageId) {
-		(Client.EVM2AnyMessage memory message, uint256 fee) = _buildReceiptCCIPMessage(ccipReceipt);
-
-		messageId = IRouterClient(i_ccipRouter).ccipSend{value: fee}(ccipReceipt.sourceChainSelector, message);
-
-		emit CrossChainPoolManager__ReceiptSent(ccipReceipt.originMessageId, messageId, ccipReceipt.receipt.receiptType);
+	function sendReceipt(CCIPReceipt memory ccipReceipt) external onlySelf returns (bytes32 messageId) {
+		return _rawSendReceipt(ccipReceipt);
 	}
 
+	//slither-disable-next-line reentrancy-benign
 	function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
 		address messageSender = abi.decode(message.sender, (address));
 		if (messageSender != i_CTF) revert CrossChainPoolManager__SenderIsNotCTF(messageSender, i_CTF);
 
-		try this.processCCIPMessage(message.messageId, message.data) returns (Receipt.CrossChainReceipt memory receipt) {
+		try this.processCCIPMessage(message.messageId, message.data) returns (RequestReceipt.CrossChainReceipt memory receipt) {
 			_sendReceipt(message, receipt);
 		} catch {
-			Receipt.CrossChainReceipt memory receipt = _getErrorReceipt(message.data);
+			RequestReceipt.CrossChainReceipt memory receipt = _getErrorReceipt(message.data);
 			_sendReceipt(message, receipt);
 		}
 	}
 
-	function _createPool(CrossChainCreatePoolRequest memory request) private returns (Receipt.CrossChainReceipt memory receipt) {
+	function _createPool(CrossChainCreatePoolRequest memory request) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
 		(address poolAddress, bytes32 poolId) = super._createPool({
 			name: request.poolName,
 			symbol: block.chainid.toString(),
@@ -128,10 +153,11 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 
 		emit CrossChainPoolManager__PoolCreated(poolAddress, poolId, request.tokens);
 
-		return Receipt.crossChainPoolCreatedReceipt(poolAddress, poolId, request.tokens);
+		return RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, request.tokens);
 	}
 
-	function _sendReceipt(Client.Any2EVMMessage memory message, Receipt.CrossChainReceipt memory receipt) private {
+	//slither-disable-next-line reentrancy-benign
+	function _sendReceipt(Client.Any2EVMMessage memory message, RequestReceipt.CrossChainReceipt memory receipt) private {
 		CCIPReceipt memory ccipReceipt = CCIPReceipt({
 			receipt: receipt,
 			originMessageId: message.messageId,
@@ -150,11 +176,19 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager {
 		}
 	}
 
-	function _getErrorReceipt(bytes memory data) private view returns (Receipt.CrossChainReceipt memory receipt) {
+	function _rawSendReceipt(CCIPReceipt memory ccipReceipt) private returns (bytes32 messageId) {
+		(Client.EVM2AnyMessage memory message, uint256 fee) = _buildReceiptCCIPMessage(ccipReceipt);
+
+		messageId = IRouterClient(i_ccipRouter).ccipSend{value: fee}(ccipReceipt.sourceChainSelector, message);
+
+		emit CrossChainPoolManager__ReceiptSent(ccipReceipt.originMessageId, messageId, ccipReceipt.receipt.receiptType);
+	}
+
+	function _getErrorReceipt(bytes memory data) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
 		CrossChainRequestType requestType = abi.decode(data, (CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
-			return Receipt.crossChainGenericFailedReceipt(Receipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);
+			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);
 		}
 	}
 

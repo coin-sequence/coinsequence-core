@@ -5,20 +5,20 @@ import {SafeChain} from "src/libraries/SafeChain.sol";
 import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IRouterClient, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {AccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {CrossChainRequestType} from "src/types/CrossChainRequestType.sol";
 import {CrossChainCreatePoolRequest} from "src/types/CrossChainCreatePoolRequest.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
-import {Receipt} from "src/libraries/Receipt.sol";
+import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {SafeCrossChainReceipt} from "src/libraries/SafeCrossChainReceipt.sol";
 
-abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver {
+abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, BalancerPoolManager {
 	using SafeChain for uint256;
 	using Strings for uint256;
 	using CustomCast for address[];
-	using SafeCrossChainReceipt for Receipt.CrossChainReceiptType;
-	using SafeCrossChainReceipt for Receipt.CrossChainSuccessReceiptType;
+	using SafeCrossChainReceipt for RequestReceipt.CrossChainReceiptType;
+	using SafeCrossChainReceipt for RequestReceipt.CrossChainSuccessReceiptType;
 
 	enum PoolStatus {
 		NOT_CREATED,
@@ -32,6 +32,9 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 		bytes32 poolId;
 		PoolStatus status;
 	}
+
+	uint48 private constant ADMIN_TRANSFER_DELAY = 7 days;
+	bytes32 public constant TOKENS_MANAGER_ROLE = "TOKENS_MANAGER";
 
 	IRouterClient private immutable i_ccipRouterClient;
 
@@ -52,6 +55,7 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 	event PoolManager__CrossChainCreatePoolRequested(
 		address indexed crossChainPoolManager,
 		bytes32 indexed messageId,
+		uint256 indexed chainId,
 		address[] tokens,
 		string poolName
 	);
@@ -92,16 +96,44 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 	/// @notice thrown if the sender of the Cross Chain Receipt is not a registered Cross Chain Pool Manager
 	error PoolManager__InvalidReceiptSender(address sender, address crossChainPoolManager);
 
+	/// @notice thrown when the ETH witdraw fails for some reason
+	error PoolManager__FailedToWithdrawETH(bytes data);
+
 	constructor(
 		address balancerManagedPoolFactory,
 		address balancerVault,
 		address ccipRouterClient,
 		address admin
-	) BalancerPoolManager(balancerManagedPoolFactory, balancerVault) Ownable(admin) CCIPReceiver(ccipRouterClient) {
+	)
+		BalancerPoolManager(balancerManagedPoolFactory, balancerVault)
+		AccessControlDefaultAdminRules(ADMIN_TRANSFER_DELAY, admin)
+		CCIPReceiver(ccipRouterClient)
+	{
 		i_ccipRouterClient = IRouterClient(ccipRouterClient);
 	}
 
-	function setCrossChainPoolManager(uint256 chainId, address crossChainPoolManager) external onlyOwner {
+	receive() external payable {}
+
+	/**
+	 * @notice withdraw ETH from the CTF. Only the admin can perform this action
+	 * @param amount the amount of ETH to withdraw (with decimals)
+	 * @custom:note this only withdraw the ETH used to cover infrastructural costs
+	 * it doesn't withdraw users deposited funds
+	 *  */
+	function withdrawETH(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+		//slither-disable-next-line arbitrary-send-eth
+		(bool success, bytes memory data) = defaultAdmin().call{value: amount}("");
+
+		if (!success) revert PoolManager__FailedToWithdrawETH(data);
+	}
+
+	/**
+	 * @notice set the Cross Cross Chain Pool Manager contract for the given chain.
+	 * Only the admin can set it.
+	 * @param crossChainPoolManager the address of the Cross Chain Pool Manager at the given chain
+	 * @param chainId the chain id of the given `crossChainPoolManager` address
+	 *  */
+	function setCrossChainPoolManager(uint256 chainId, address crossChainPoolManager) external onlyRole(TOKENS_MANAGER_ROLE) {
 		address currentCrossChainPoolManager = s_chainCrossChainPoolManager[chainId];
 
 		if (chainId.isCurrent()) revert PoolManager__CannotAddCrossChainPoolManagerForTheSameChain();
@@ -115,7 +147,13 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 		emit PoolManager__CrossChainPoolManagerSet(chainId, crossChainPoolManager);
 	}
 
-	function setChainSelector(uint256 chainId, uint64 chainSelector) external onlyOwner {
+	/**
+	 * @notice set the ccip chain selector for the given chain.
+	 * Only the admin can set it.
+	 * @param chainSelector the ccip chain selector for the given chain
+	 * @param chainId the chain id of the given `chainSelector`
+	 *  */
+	function setChainSelector(uint256 chainId, uint64 chainSelector) external onlyRole(TOKENS_MANAGER_ROLE) {
 		if (chainId.isCurrent()) revert PoolManager__CannotAddChainSelectorForTheSameChain();
 		if (chainSelector == 0) revert PoolManager__InvalidChainSelector();
 
@@ -124,20 +162,51 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 		emit PoolManager__ChainSelectorSet(chainId, chainSelector);
 	}
 
+	/**
+	 * @notice get the Cross Chain Pool Manager contract for the given chain
+	 * @param chainId the chain id that the Cross Chain Pool Manager contract is in
+	 *  */
+	function getCrossChainPoolManager(uint256 chainId) external view returns (address) {
+		return s_chainCrossChainPoolManager[chainId];
+	}
+
+	/**
+	 * @notice get the ccip chain selector for the given chain
+	 * @param chainId the chain id that the ccip chain selector is for
+	 *  */
+	function getChainSelector(uint256 chainId) external view returns (uint64) {
+		return s_chainSelector[chainId];
+	}
+
+	/**
+	 * @notice get the Pool info for the given chain
+	 * @param chainId the chain id that the Pool contract is in
+	 *  */
+	function getChainPool(uint256 chainId) external view returns (ChainPool memory) {
+		return s_chainPool[chainId];
+	}
+
+	function supportsInterface(bytes4 interfaceId) public view override(AccessControlDefaultAdminRules, CCIPReceiver) returns (bool) {
+		return AccessControlDefaultAdminRules.supportsInterface(interfaceId) || CCIPReceiver.supportsInterface(interfaceId);
+	}
+
 	function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
-		Receipt.CrossChainReceipt memory receipt = abi.decode(message.data, (Receipt.CrossChainReceipt));
+		RequestReceipt.CrossChainReceipt memory receipt = abi.decode(message.data, (RequestReceipt.CrossChainReceipt));
 		address ccipSender = abi.decode(message.sender, (address));
 		address crossChainPoolManager = s_chainCrossChainPoolManager[receipt.chainId];
 
 		if (ccipSender != crossChainPoolManager) revert PoolManager__InvalidReceiptSender(ccipSender, crossChainPoolManager);
 
 		if (receipt.receiptType.isSuccess()) {
-			Receipt.CrossChainSuccessReceiptType successTypeReceipt = abi.decode(receipt.data, (Receipt.CrossChainSuccessReceiptType));
+			RequestReceipt.CrossChainSuccessReceiptType successTypeReceipt = abi.decode(
+				receipt.data,
+				(RequestReceipt.CrossChainSuccessReceiptType)
+			);
 			_handleCrossChainSuccessReceipt(receipt.chainId, successTypeReceipt, receipt);
 		}
 	}
 
-	function onCreatePool(uint256 chainId, address[] memory tokens) internal virtual;
+	function _onCreatePool(uint256 chainId, address[] memory tokens) internal virtual;
 
 	/**
 	 * @notice Create a new pool with the given Tokens for the given chain
@@ -160,6 +229,8 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 			s_chainPool[chainId].poolId = poolId;
 			//slither-disable-end reentrancy-no-eth
 
+			_onCreatePool(chainId, tokens);
+
 			emit PoolManager__SameChainPoolCreated(poolId, poolAddress, tokens);
 		} else {
 			s_chainPool[chainId].status = PoolStatus.CREATING;
@@ -175,9 +246,10 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 			);
 
 			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, messageData);
+			//slither-disable-next-line arbitrary-send-eth
 			bytes32 messageId = i_ccipRouterClient.ccipSend{value: fee}(chainSelector, message);
 
-			emit PoolManager__CrossChainCreatePoolRequested(crossChainPoolManager, messageId, tokens, poolName);
+			emit PoolManager__CrossChainCreatePoolRequested(crossChainPoolManager, messageId, chainId, tokens, poolName);
 		}
 	}
 
@@ -188,6 +260,8 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 	 * @param pool the pool that the token will be added to
 	 */
 	function _requestTokenAddition(uint256 chainId, address token, address pool) internal {
+		ChainPool memory chainPool = s_chainPool[chainId];
+
 		if (chainId.isCurrent()) {} else {}
 	}
 
@@ -198,6 +272,8 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 	 * @param pool the pool that the token will be added to
 	 */
 	function _requestBatchTokenAddition(uint256 chainId, address[] memory tokens, address pool) internal {
+		ChainPool memory chainPool = s_chainPool[chainId];
+
 		if (chainId.isCurrent()) {} else {}
 	}
 
@@ -207,20 +283,20 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 
 	function _handleCrossChainSuccessReceipt(
 		uint256 chainId,
-		Receipt.CrossChainSuccessReceiptType successTypeReceipt,
-		Receipt.CrossChainReceipt memory receipt
+		RequestReceipt.CrossChainSuccessReceiptType successTypeReceipt,
+		RequestReceipt.CrossChainReceipt memory receipt
 	) private {
 		if (successTypeReceipt.isPoolCreated()) {
-			(, Receipt.CrossChainPoolCreatedReceipt memory receiptPoolCreated) = abi.decode(
+			(, RequestReceipt.CrossChainPoolCreatedReceipt memory receiptPoolCreated) = abi.decode(
 				receipt.data,
-				(Receipt.CrossChainSuccessReceiptType, Receipt.CrossChainPoolCreatedReceipt)
+				(RequestReceipt.CrossChainSuccessReceiptType, RequestReceipt.CrossChainPoolCreatedReceipt)
 			);
 
 			_handleCrossChainPoolCreatedReceipt(chainId, receiptPoolCreated);
 		}
 	}
 
-	function _handleCrossChainPoolCreatedReceipt(uint256 chainId, Receipt.CrossChainPoolCreatedReceipt memory receipt) private {
+	function _handleCrossChainPoolCreatedReceipt(uint256 chainId, RequestReceipt.CrossChainPoolCreatedReceipt memory receipt) private {
 		ChainPool memory chainPool = s_chainPool[chainId];
 		if (chainPool.status == PoolStatus.ACTIVE) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
@@ -231,7 +307,7 @@ abstract contract PoolManager is BalancerPoolManager, Ownable2Step, CCIPReceiver
 			poolTokens: receipt.tokens
 		});
 
-		onCreatePool(chainId, receipt.tokens);
+		_onCreatePool(chainId, receipt.tokens);
 
 		emit PoolManager__CrossChainPoolCreated(receipt.poolAddress, receipt.poolId, chainId);
 	}

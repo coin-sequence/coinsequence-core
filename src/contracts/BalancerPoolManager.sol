@@ -15,6 +15,8 @@ abstract contract BalancerPoolManager {
 
 	IVault private immutable i_vault;
 	IBalancerManagedPoolFactoryV2 private immutable i_managedPoolFactory;
+	uint256 private constant MAX_POOL_TOKENS = 50;
+	uint256 private constant NORMALIZED_WEIGHT_SUM = 1e18;
 
 	/// @notice Emitted once the Tokens are successfully deposited into Balancer
 	event BalancerPoolManager__Deposited(bytes32 poolId);
@@ -30,6 +32,9 @@ abstract contract BalancerPoolManager {
 	/// @notice thrown when try to deposit tokens to balancer, but the minBPTOut param is zero.
 	error BalancerPoolManager__MinBPTOutIsZero();
 
+	/// @notice thrown if at the creation of a pool or adding a token, the total number of tokens exceeds the MAX_POOL_TOKENS
+	error BalancerPoolManager__ExceededMaxPoolTokens(uint256 tokens, uint256 maxTokens);
+
 	constructor(address balancerManagedPoolFactory, address balancerVault) {
 		i_vault = IVault(balancerVault);
 		i_managedPoolFactory = IBalancerManagedPoolFactoryV2(balancerManagedPoolFactory);
@@ -40,19 +45,32 @@ abstract contract BalancerPoolManager {
 		string memory symbol,
 		OpenZeppelinIERC20[] memory initialTokens
 	) internal returns (address poolAddress, bytes32 poolId) {
+		if (initialTokens.length > MAX_POOL_TOKENS) revert BalancerPoolManager__ExceededMaxPoolTokens(initialTokens.length, MAX_POOL_TOKENS);
+
 		uint256 initialTokensLength = initialTokens.length;
-		address[] memory assetManagers = new address[](1);
+		address[] memory assetManagers = new address[](initialTokens.length);
 		uint256[] memory initialNormalizedWeights = new uint256[](initialTokens.length);
+		uint256 tokensWeightSum;
 
 		assetManagers[0] = address(this);
 
 		for (uint256 i = 0; i < initialTokensLength; ) {
 			// set equal weight for all tokens
-			initialNormalizedWeights[i] = 1e18 / (initialTokensLength * 1 ** 10);
+			// 1e10 is used to equalize to 1e18 decimals after division, as Balancer requires 1e18
+			uint256 tokenWeight = NORMALIZED_WEIGHT_SUM / (initialTokensLength * 1 ** 10);
+			initialNormalizedWeights[i] = tokenWeight;
+			tokensWeightSum += tokenWeight;
 
 			unchecked {
 				++i;
 			}
+		}
+
+		// add 1 to make the `tokensWeightSum` equals to `NORMALIZED_WEIGHT_SUM`
+		// in case of the sum being something like 0,9999999.
+		// if the sum is not equal 1, Balancer contract will revert
+		if (tokensWeightSum < NORMALIZED_WEIGHT_SUM) {
+			++initialNormalizedWeights[0];
 		}
 
 		IBalancerManagedPoolFactoryV2.ManagedPoolParams memory params = IBalancerManagedPoolFactoryV2.ManagedPoolParams({
@@ -65,7 +83,7 @@ abstract contract BalancerPoolManager {
 			.ManagedPoolSettingsParams({
 				tokens: initialTokens,
 				normalizedWeights: initialNormalizedWeights,
-				swapFeePercentage: 0,
+				swapFeePercentage: 1e12, // 1e12 is the MIN_SWAP_FEE of Balancer
 				swapEnabledOnStart: false,
 				mustAllowlistLPs: true,
 				managementAumFeePercentage: 0,

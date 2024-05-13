@@ -3,10 +3,10 @@ pragma solidity 0.8.25;
 
 interface ICTF {
 	/// @notice emitted when Cross-Chain underlying tokens are added to the CTF
-	event RequestedToAddUnderlyingTokensCrossChain(address[] tokens, uint256[] chains);
+	event CTF__RequestedToAddUnderlyingTokensCrossChain(address[] tokens, uint256[] chains);
 
 	/// @notice emitted when Same-Chain underlying tokens are added to the CTF
-	event AddedUnderlyingTokensSameChain(address[] tokens);
+	event CTF__AddedUnderlyingTokensSameChain(address[] tokens);
 
 	/// @notice thrown if the underlying tokens array and chains array have different lengths
 	error CTF__TokensAndChainsMismatch(uint256 tokens, uint256 chains);

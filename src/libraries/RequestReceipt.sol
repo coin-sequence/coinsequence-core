@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
+// solhint-disable chainlink-solidity/prefix-internal-functions-with-underscore
 pragma solidity 0.8.25;
 
-library Receipt {
+library RequestReceipt {
 	enum CrossChainReceiptType {
 		SUCCESS,
 		FAILURE

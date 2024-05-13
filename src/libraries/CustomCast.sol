@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// solhint-disable chainlink-solidity/prefix-internal-functions-with-underscore
 pragma solidity 0.8.25;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
