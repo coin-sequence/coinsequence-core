@@ -1,3 +1,6 @@
 forge-std/=lib/forge-std/src/
 @openzeppelin/contracts=lib/openzeppelin-contracts/contracts
-@chainlink/contracts=lib/chainlink/contracts
+@chainlink/contracts/=lib/chainlink/contracts
+@chainlink/contracts-ccip/=node_modules/@chainlink/contracts-ccip
+@balancer-labs/v2-interfaces=node_modules/@balancer-labs/v2-interfaces
+@balancer-labs/v2-solidity-utils=lib/balancer-v2-monorepo/pkg/solidity-utils/

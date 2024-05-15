@@ -19,12 +19,13 @@ This repository contains all the source code of the Core Smart Contracts for the
   - To know if Node.js is installed, run `node --version` you should see a response like `vX.X.X`.
   - If Node.js is not installed, head over to [How to install Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs)
 
-- **NPM**
+- **npm**
 
-  - To know if NPM is installed, run `npm --version` you should see a response like `x.x.x`.
-  - If NPM is not installed, head over to [Downloading and installing Node.js and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
+  - To know if npm is installed, run `npm --version` you should see a response like `x.x.x`.
+  - If npm is not installed, head over to [Downloading and installing Node.js and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
 - **Slither**
+
   - To know if Slither is installed, run `slither --version` you should see a response like `x.x.x`.
   - If Slither is not installed, head over to [How to install Slither](https://github.com/crytic/slither?tab=readme-ov-file#how-to-install)
 
@@ -66,10 +67,3 @@ npm run deploy
 ```
 
 And choose the contract that you want to deploy.
-
-In case of more complex deployments, we use Foundry Scripts.
-One of them is the Engine, to deploy the Engine just run:
-
-```shell
-npm run deploy-engine
-```

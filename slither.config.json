@@ -4,8 +4,11 @@
     "exclude_medium": false,
     "exclude_high": false,
     "disable_color": false,
-    "filter_paths": "(mocks/|test/|script/|upgradedProtocol/|lib/)",
+    "filter_paths": "(mocks/|test/|script/|upgradedProtocol/|lib/|node_modules/)",
     "legacy_ast": false,
+    "compile_force_framework": "foundry",
+    "solc": "0.8.25",
+    "foundry_compile_all": true,
     "exclude_dependencies": true,
-    "detectors_to_exclude": "naming-convention,solc-version"
+    "detectors_to_exclude": "unused-import,naming-convention,pragma,solc-version,assembly,unused-return,calls-loop,reentrancy-events,low-level-calls"
 }

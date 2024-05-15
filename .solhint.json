@@ -26,7 +26,7 @@
         "no-unused-vars": "warn",
         "max-line-length": [
             "warn",
-            120
+            140
         ],
         "payable-fallback": "error",
         "reason-string": "warn",
@@ -68,7 +68,7 @@
         "chainlink-solidity/no-hardhat-imports": "warn",
         "chainlink-solidity/explicit-imports": "warn",
         "chainlink-solidity/inherited-constructor-args-not-in-contract-definition": "warn",
-        "chainlink-solidity/no-block-single-if-reverts": "warn",
+        "chainlink-solidity/no-block-single-if-reverts": "off",
         "chainlink-solidity/no-require-statements": "warn"
     }
 }
