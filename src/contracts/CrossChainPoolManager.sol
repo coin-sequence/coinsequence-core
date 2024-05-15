@@ -3,8 +3,7 @@ pragma solidity 0.8.25;
 
 import {CCIPReceiver, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
-import {SafeCrossChainRequestType, CrossChainRequestType} from "src/libraries/SafeCrossChainRequestType.sol";
-import {CrossChainCreatePoolRequest} from "src/types/CrossChainCreatePoolRequest.sol";
+import {SafeCrossChainRequestType, CrossChainRequest} from "src/libraries/SafeCrossChainRequestType.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
@@ -13,7 +12,7 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
 
 contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Step {
-	using SafeCrossChainRequestType for CrossChainRequestType;
+	using SafeCrossChainRequestType for CrossChainRequest.CrossChainRequestType;
 	using Strings for uint256;
 	using CustomCast for address[];
 
@@ -110,10 +109,13 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	 *  @dev We use this function as external to make it possible to use Try-Catch
 	 */
 	function processCCIPMessage(bytes32 messageId, bytes calldata data) external onlySelf returns (RequestReceipt.CrossChainReceipt memory) {
-		CrossChainRequestType requestType = abi.decode(data, (CrossChainRequestType));
+		CrossChainRequest.CrossChainRequestType requestType = abi.decode(data, (CrossChainRequest.CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
-			(, CrossChainCreatePoolRequest memory request) = abi.decode(data, (CrossChainRequestType, CrossChainCreatePoolRequest));
+			(, CrossChainRequest.CrossChainCreatePoolRequest memory request) = abi.decode(
+				data,
+				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainCreatePoolRequest)
+			);
 			return _createPool(request);
 		}
 
@@ -146,7 +148,9 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		}
 	}
 
-	function _createPool(CrossChainCreatePoolRequest memory request) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
+	function _createPool(
+		CrossChainRequest.CrossChainCreatePoolRequest memory request
+	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
 		(address poolAddress, bytes32 poolId) = super._createPool({
 			name: request.poolName,
 			symbol: block.chainid.toString(),
@@ -188,7 +192,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	}
 
 	function _getErrorReceipt(bytes memory ccipMessageData) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
-		CrossChainRequestType requestType = abi.decode(ccipMessageData, (CrossChainRequestType));
+		CrossChainRequest.CrossChainRequestType requestType = abi.decode(ccipMessageData, (CrossChainRequest.CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
 			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);

@@ -6,14 +6,14 @@ import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IRouterClient, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {AccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
-import {CrossChainRequestType} from "src/types/CrossChainRequestType.sol";
-import {CrossChainCreatePoolRequest} from "src/types/CrossChainCreatePoolRequest.sol";
+import {CrossChainRequest} from "src/libraries/CrossChainRequest.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {SafeCrossChainReceipt} from "src/libraries/SafeCrossChainReceipt.sol";
 import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
 import {Arrays} from "src/libraries/Arrays.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, BalancerPoolManager {
 	using SafeChain for uint256;
@@ -22,11 +22,18 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainReceiptType;
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainSuccessReceiptType;
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainFailureReceiptType;
+	using EnumerableSet for EnumerableSet.UintSet;
 
 	enum PoolStatus {
 		NOT_CREATED,
 		ACTIVE,
 		CREATING
+	}
+
+	enum DepositStatus {
+		NOT_DEPOSITED,
+		DEPOSITED,
+		PENDING
 	}
 
 	struct ChainPool {
@@ -36,7 +43,14 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		PoolStatus status;
 	}
 
+	struct ChainDeposit {
+		DepositStatus status;
+		address user;
+		uint256 receivedBPT;
+	}
+
 	uint256 private constant CREATE_POOL_GAS_LIMIT = 3_000_000;
+	uint256 private constant DEPOSIT_GAS_LIMIT = 3_000_000; // TODO: Check how much gas is needed
 	uint48 private constant ADMIN_TRANSFER_DELAY = 7 days;
 
 	bytes32 public constant TOKENS_MANAGER_ROLE = "TOKENS_MANAGER";
@@ -45,9 +59,14 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	mapping(uint256 chainId => address crossChainPoolManager) private s_chainCrossChainPoolManager;
 	mapping(uint256 chainId => ChainPool pool) private s_chainPool;
+	mapping(bytes32 depositId => mapping(uint256 chainId => ChainDeposit)) private s_deposits;
+	EnumerableSet.UintSet private s_chainsSet;
 
 	/// @notice emitted once the Pool for the same chain as the CTF is successfully created.
 	event PoolManager__SameChainPoolCreated(bytes32 indexed poolId, address indexed poolAddress, address[] tokens);
+
+	/// @notice emitted once a deposit is made in the same chain is made in the CTF
+	event PoolManaged__SameChainDeposited(address indexed forUser, bytes32 indexed depositId);
 
 	/// @notice emitted once the CrossChainPoolManager for the given chain is set
 	event PoolManager__CrossChainPoolManagerSet(uint256 indexed chainId, address indexed crossChainPoolManager);
@@ -106,6 +125,22 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	/// @notice thrown when the ETH witdraw fails for some reason
 	error PoolManager__FailedToWithdrawETH(bytes data);
 
+	/**
+	 * @notice thrown when the chainid passed is not mapped.
+	 * @custom:note this is not used in the create pool function, as they will add the chain
+	 *  */
+	error PoolManager__UnknownChain(uint256 chainId);
+
+	/**
+	 * @notice thrown when the pool for the given chain is not active yet
+	 */
+	error PoolManager__PoolNotActive(uint256 chainId);
+
+	/**
+	 * @notice thrown when the deposit id is duplicated while depositing
+	 */
+	error PoolManaged__DuplicatedDepositId(bytes32 depositId);
+
 	constructor(
 		address balancerManagedPoolFactory,
 		address balancerVault,
@@ -117,6 +152,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		CCIPReceiver(ccipRouterClient)
 	{
 		i_ccipRouterClient = IRouterClient(ccipRouterClient);
+		s_chainsSet.add(block.chainid);
 	}
 
 	receive() external payable {}
@@ -198,6 +234,42 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	function _onCreatePool(uint256 chainId, address[] memory tokens) internal virtual;
 
+	function _onDeposit(uint256 chainId, uint256 bptReceived) internal virtual;
+
+	function _requestPoolDeposit(bytes32 depositId, uint256 chainId, address[] memory assets, uint256 minBPTOut) internal {
+		assets = Arrays.sort(assets);
+
+		if (!s_chainsSet.contains(chainId)) revert PoolManager__UnknownChain(chainId);
+		ChainPool memory chainPool = s_chainPool[chainId];
+
+		if (chainPool.status != PoolStatus.ACTIVE) revert PoolManager__PoolNotActive(chainId);
+
+		if (chainId.isCurrent()) {
+			uint256 bptReceived = _joinPool(chainPool.poolId, assets.toIAssetList(), minBPTOut);
+
+			s_deposits[depositId][chainId] = ChainDeposit(DepositStatus.DEPOSITED, msg.sender, bptReceived);
+			if (s_chainsSet.length() == 1) _onDeposit(chainId, bptReceived);
+
+			emit PoolManaged__SameChainDeposited(msg.sender, depositId);
+		} else {
+			// s_deposits[depositId][chainId] = ChainDeposit(DepositStatus.PENDING, msg.sender, 0);
+			// address crossChainPoolManager = s_chainCrossChainPoolManager[chainId];
+			// uint64 chainSelector = NetworkHelper._getCCIPChainSelector(chainId);
+			// if (crossChainPoolManager == address(0)) revert PoolManager__CrossChainPoolManagerNotFound(chainId);
+			// if (chainSelector == 0) revert PoolManager__ChainSelectorNotFound(chainId);
+			// bytes memory messageData = abi.encode(
+			// 	CrossChainRequest.CrossChainRequestType.DEPOSIT,
+			// 	CrossChainRequest.CrossChainDepositRequest({
+			// 		depositId: depositId,
+			// 		joinTokens: assets.toIAssetList(),
+			// 		poolId: chainPool.poolId,
+			// 		minBPTOut: minBPTOut
+			// 	})
+			// );
+			// _buildCrossChainMessage(chainId, DEPOSIT_GAS_LIMIT, messageData);
+		}
+	}
+
 	/**
 	 * @notice Create a new pool with the given Tokens for the given chain
 	 * @param chainId the chain that the pool will be created on
@@ -208,7 +280,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 		// sort the tokens in ascending order
 		// balancer requires the tokens in ascending order
-		tokens = Arrays._sort(tokens);
+		tokens = Arrays.sort(tokens);
 
 		if (chainPool.status != PoolStatus.NOT_CREATED) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
@@ -235,8 +307,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 			if (chainSelector == 0) revert PoolManager__ChainSelectorNotFound(chainId);
 
 			bytes memory messageData = abi.encode(
-				CrossChainRequestType.CREATE_POOL,
-				CrossChainCreatePoolRequest({tokens: tokens, poolName: poolName})
+				CrossChainRequest.CrossChainRequestType.CREATE_POOL,
+				CrossChainRequest.CrossChainCreatePoolRequest({tokens: tokens, poolName: poolName})
 			);
 
 			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, CREATE_POOL_GAS_LIMIT, messageData);
@@ -304,6 +376,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		ChainPool memory chainPool = s_chainPool[chainId];
 		if (chainPool.status == PoolStatus.ACTIVE) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
+		s_chainsSet.add(chainId);
 		s_chainPool[chainId] = ChainPool({
 			status: PoolStatus.ACTIVE,
 			poolAddress: receipt.poolAddress,

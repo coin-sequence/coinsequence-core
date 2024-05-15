@@ -1,8 +1,0 @@
-{
-    "Import CSDeposit": {
-        "scope": "solidity",
-        "prefix": "importCSDeposit",
-        "body": "import {CSDeposit} from \"src/types/CSDeposit.sol\";",
-        "description": "Import CSDeposit struct"
-    }
-}

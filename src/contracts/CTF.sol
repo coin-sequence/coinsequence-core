@@ -7,7 +7,6 @@ import {PoolManager} from "src/contracts/PoolManager.sol";
 import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
 
 contract CTF is PoolManager, ERC20Permit {
-	using EnumerableSet for EnumerableSet.UintSet;
 	using EnumerableSet for EnumerableSet.AddressSet;
 
 	mapping(uint256 chainId => address[] tokens) private s_chainUnderlyingTokens;
@@ -26,7 +25,6 @@ contract CTF is PoolManager, ERC20Permit {
 
 	address[] private s_underlyingTokens;
 	uint256[] private s_chains;
-	EnumerableSet.UintSet private s_chainsSet;
 
 	/// @notice emitted when Cross-Chain underlying tokens are added to the CTF
 	event CTF__RequestedToAddUnderlyingTokensCrossChain(address[] tokens, uint256[] chains);
@@ -62,6 +60,8 @@ contract CTF is PoolManager, ERC20Permit {
 			NetworkHelper._getCTFAdmin()
 		)
 	{}
+
+	function deposit() external {}
 
 	/**
 	 * @notice Add Cross-Chain underlying tokens to the CTF.
@@ -158,11 +158,12 @@ contract CTF is PoolManager, ERC20Permit {
 			s_chainUnderlyingTokens[chainId].push(tokens[i]);
 			s_underlyingTokens.push(tokens[i]);
 			s_chains.push(chainId);
-			s_chainsSet.add(chainId);
 
 			unchecked {
 				++i;
 			}
 		}
 	}
+
+	function _onDeposit(uint256 chainId, uint256 bptReceived) internal virtual override {}
 }

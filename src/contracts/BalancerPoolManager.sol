@@ -1,45 +1,48 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {BalancerERC20Helpers} from "src/libraries/BalancerERC20Helpers.sol";
+import {BalancerERC20Helpers, IAsset} from "src/libraries/BalancerERC20Helpers.sol";
 import {IERC20 as OpenZeppelinIERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVault, IERC20 as BalancerIERC20} from "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 import {IBalancerManagedPoolFactoryV2} from "src/interfaces/IBalancerManagedPoolFactoryV2.sol";
 import {ProtocolFeeType} from "@balancer-labs/v2-interfaces/contracts/standalone-utils/IProtocolFeePercentagesProvider.sol"; //solhint-disable-line max-line-length
 import {IManagedPool} from "@balancer-labs/v2-interfaces/contracts/pool-utils/IManagedPool.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Arrays} from "src/libraries/Arrays.sol";
 
 abstract contract BalancerPoolManager {
 	using BalancerERC20Helpers for BalancerIERC20[];
+	using Arrays for uint256[];
+
+	enum JoinPoolKind {
+		INIT,
+		EXACT_TOKENS_IN_FOR_BPT_OUT,
+		TOKEN_IN_FOR_EXACT_BPT_OUT,
+		ALL_TOKENS_IN_FOR_EXACT_BPT_OUT
+	}
 
 	IVault private immutable i_vault;
 	IBalancerManagedPoolFactoryV2 private immutable i_managedPoolFactory;
 	uint256 private constant MAX_POOL_TOKENS = 50;
 	uint256 private constant NORMALIZED_WEIGHT_SUM = 1e18;
 
-	/// @notice Emitted once the Tokens are successfully deposited into Balancer
-	event BalancerPoolManager__Deposited(bytes32 poolId);
-
-	/**
-	 * @notice thrown when try to deposit tokens to balancer, but one of the tokens balance is zero.
-	 *
-	 * Can be interpreted as a failure in the swap from USDC to Pool tokens. The deposit Function
-	 * should only be called after swapping the USDC to the Pool Tokens.
-	 * */
-	error BalancerPoolManager__PoolTokenBalanceIsZero(address token);
-
-	/// @notice thrown when try to deposit tokens to balancer, but the minBPTOut param is zero.
-	error BalancerPoolManager__MinBPTOutIsZero();
-
 	/// @notice thrown if at the creation of a pool or adding a token, the total number of tokens exceeds the MAX_POOL_TOKENS
 	error BalancerPoolManager__ExceededMaxPoolTokens(uint256 tokens, uint256 maxTokens);
 
-	/// @notice thrown if the token is invalid in some way, either not having code or being address 0
-	error BalancerPoolManager__InvalidToken();
+	/// @notice thrown if the join kind is `INIT` and the number of join assets is not equal to the number of tokens in the pool
+	error BalancerPoolManager__JoinAssetsCountMismatch(uint256 joinAssetsCount, uint256 assetsCount);
+
+	/// @notice thrown if the contract have not received the BPT after joining the pool
+	error BalancerPoolManager__BPTNotReceived();
 
 	constructor(address balancerManagedPoolFactory, address balancerVault) {
 		i_vault = IVault(balancerVault);
 		i_managedPoolFactory = IBalancerManagedPoolFactoryV2(balancerManagedPoolFactory);
+	}
+
+	/// @notice Returns the join kind that should be used for a given pool
+	function getJoinKind(bytes32 poolId) external view returns (JoinPoolKind) {
+		(, uint256[] memory balances, ) = i_vault.getPoolTokens(poolId);
+		return _getJoinKind(balances);
 	}
 
 	function _createPool(
@@ -82,6 +85,39 @@ abstract contract BalancerPoolManager {
 		return (_poolAddress, _poolId);
 	}
 
+	function _joinPool(bytes32 poolId, IAsset[] memory joinAssets, uint256 minBPTOut) internal returns (uint256 bptAmountReceived) {
+		(address poolAddress, ) = i_vault.getPool(poolId);
+		uint256 bptAmountBeforeJoin = BalancerIERC20(poolAddress).balanceOf(address(this));
+		(BalancerIERC20[] memory poolTokens, uint256[] memory balances, ) = i_vault.getPoolTokens(poolId);
+		uint256 poolTokensCount = poolTokens.length;
+		uint256[] memory maxAmountsIn = new uint256[](poolTokens.length);
+		JoinPoolKind joinKind = _getJoinKind(balances);
+
+		if (joinKind == JoinPoolKind.INIT && joinAssets.length != poolTokensCount) {
+			revert BalancerPoolManager__JoinAssetsCountMismatch(joinAssets.length, poolTokensCount);
+		}
+
+		for (uint256 i = 0; i < poolTokensCount; ) {
+			uint256 tokenBalance = poolTokens[i].balanceOf(address(this));
+
+			maxAmountsIn[i] = tokenBalance;
+			poolTokens[i].approve(address(i_vault), tokenBalance);
+
+			unchecked {
+				++i;
+			}
+		}
+
+		bytes memory userData = abi.encodePacked(joinKind, maxAmountsIn, minBPTOut);
+
+		IVault.JoinPoolRequest memory joinPoolRequest = IVault.JoinPoolRequest(joinAssets, maxAmountsIn, userData, false);
+		i_vault.joinPool(poolId, address(this), address(this), joinPoolRequest);
+
+		uint256 bptAmountAfterJoin = BalancerIERC20(poolAddress).balanceOf(address(this));
+
+		bptAmountReceived = (bptAmountAfterJoin - bptAmountBeforeJoin);
+	}
+
 	function _addTokenToPool(address tokenToAdd, address pool) internal {
 		// if (tokenToAdd == address(0) || tokenToAdd.code.length == 0) revert BalancerPoolManager__InvalidToken();
 		// IManagedPool managedPool = IManagedPool(pool);
@@ -90,6 +126,11 @@ abstract contract BalancerPoolManager {
 		// managedPool.addToken(BalancerIERC20(tokenToAdd), address(this), newTokensWeight, 0, address(0));
 		// // i_vault.batchSwap(IVault.SwapKind.GIVEN_IN, swaps, assets, funds, limits, deadline);
 		// i_vault.managePoolBalance(ops);
+	}
+
+	function _getJoinKind(uint256[] memory balances) internal pure returns (JoinPoolKind) {
+		if (balances.sum() > 0) return JoinPoolKind.EXACT_TOKENS_IN_FOR_BPT_OUT;
+		return JoinPoolKind.INIT;
 	}
 
 	/**
