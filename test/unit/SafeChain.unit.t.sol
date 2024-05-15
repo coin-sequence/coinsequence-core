@@ -17,6 +17,42 @@ contract SafeChainUnitTest is Test {
 		assertFalse(SafeChain.isSepolia(block.chainid));
 	}
 
+	function test_isArbitrumSepolia_returnsTrue() external {
+		vm.chainId(421614);
+
+		assertTrue(SafeChain.isArbitrumSepolia(block.chainid));
+	}
+
+	function test_isArbitrumSepolia_returnsFalse() external {
+		vm.chainId(11155111);
+
+		assertFalse(SafeChain.isArbitrumSepolia(block.chainid));
+	}
+
+	function test_isBaseSepolia_returnsTrue() external {
+		vm.chainId(84532);
+
+		assertTrue(SafeChain.isBaseSepolia(block.chainid));
+	}
+
+	function test_isBaseSepolia_returnsFalse() external {
+		vm.chainId(11155111);
+
+		assertFalse(SafeChain.isBaseSepolia(block.chainid));
+	}
+
+	function test_isOptimismSepolia_returnsTrue() external {
+		vm.chainId(11155420);
+
+		assertTrue(SafeChain.isOptimismSepolia(block.chainid));
+	}
+
+	function test_isOptimismSepolia_returnsFalse() external {
+		vm.chainId(11155111);
+
+		assertFalse(SafeChain.isOptimismSepolia(block.chainid));
+	}
+
 	function test_isAnvil_returnsTrue() external {
 		vm.chainId(31337);
 

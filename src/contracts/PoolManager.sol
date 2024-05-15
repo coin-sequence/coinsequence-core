@@ -12,6 +12,8 @@ import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {SafeCrossChainReceipt} from "src/libraries/SafeCrossChainReceipt.sol";
+import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
+import {Arrays} from "src/libraries/Arrays.sol";
 
 abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, BalancerPoolManager {
 	using SafeChain for uint256;
@@ -19,6 +21,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	using CustomCast for address[];
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainReceiptType;
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainSuccessReceiptType;
+	using SafeCrossChainReceipt for RequestReceipt.CrossChainFailureReceiptType;
 
 	enum PoolStatus {
 		NOT_CREATED,
@@ -33,12 +36,13 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		PoolStatus status;
 	}
 
+	uint256 private constant CREATE_POOL_GAS_LIMIT = 3_000_000;
 	uint48 private constant ADMIN_TRANSFER_DELAY = 7 days;
+
 	bytes32 public constant TOKENS_MANAGER_ROLE = "TOKENS_MANAGER";
 
 	IRouterClient private immutable i_ccipRouterClient;
 
-	mapping(uint256 chainId => uint64 chainSelector) private s_chainSelector;
 	mapping(uint256 chainId => address crossChainPoolManager) private s_chainCrossChainPoolManager;
 	mapping(uint256 chainId => ChainPool pool) private s_chainPool;
 
@@ -47,9 +51,6 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/// @notice emitted once the CrossChainPoolManager for the given chain is set
 	event PoolManager__CrossChainPoolManagerSet(uint256 indexed chainId, address indexed crossChainPoolManager);
-
-	/// @notice emitted once the ccip chain selector for the given chain is set
-	event PoolManager__ChainSelectorSet(uint256 indexed chainId, uint64 indexed chainSelector);
 
 	/// @notice emitted once the message to create a pool in another chain is sent
 	event PoolManager__CrossChainCreatePoolRequested(
@@ -62,6 +63,12 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/// @notice emitted once the cross chain pool creation receipt is received
 	event PoolManager__CrossChainPoolCreated(address indexed poolAddress, bytes32 indexed poolId, uint256 indexed chainId);
+
+	/**
+	 * @notice thrown when the Pool Manager receives the Cross Chain Pool not created receipt
+	 * from the Cross Chain Pool Manager.
+	 *  */
+	event PoolManaged__FailedToCreateCrossChainPool(uint256 chainId, address crossChainPoolManager);
 
 	/// @notice thrown if the pool has already been created and the CTF is trying to create it again
 	error PoolManager__PoolAlreadyCreated(address poolAddress, uint256 chainId);
@@ -129,7 +136,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/**
 	 * @notice set the Cross Cross Chain Pool Manager contract for the given chain.
-	 * Only the admin can set it.
+	 * Only the tokens manager can set it.
 	 * @param crossChainPoolManager the address of the Cross Chain Pool Manager at the given chain
 	 * @param chainId the chain id of the given `crossChainPoolManager` address
 	 *  */
@@ -148,34 +155,11 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	}
 
 	/**
-	 * @notice set the ccip chain selector for the given chain.
-	 * Only the admin can set it.
-	 * @param chainSelector the ccip chain selector for the given chain
-	 * @param chainId the chain id of the given `chainSelector`
-	 *  */
-	function setChainSelector(uint256 chainId, uint64 chainSelector) external onlyRole(TOKENS_MANAGER_ROLE) {
-		if (chainId.isCurrent()) revert PoolManager__CannotAddChainSelectorForTheSameChain();
-		if (chainSelector == 0) revert PoolManager__InvalidChainSelector();
-
-		s_chainSelector[chainId] = chainSelector;
-
-		emit PoolManager__ChainSelectorSet(chainId, chainSelector);
-	}
-
-	/**
 	 * @notice get the Cross Chain Pool Manager contract for the given chain
 	 * @param chainId the chain id that the Cross Chain Pool Manager contract is in
 	 *  */
 	function getCrossChainPoolManager(uint256 chainId) external view returns (address) {
 		return s_chainCrossChainPoolManager[chainId];
-	}
-
-	/**
-	 * @notice get the ccip chain selector for the given chain
-	 * @param chainId the chain id that the ccip chain selector is for
-	 *  */
-	function getChainSelector(uint256 chainId) external view returns (uint64) {
-		return s_chainSelector[chainId];
 	}
 
 	/**
@@ -203,6 +187,12 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				(RequestReceipt.CrossChainSuccessReceiptType)
 			);
 			_handleCrossChainSuccessReceipt(receipt.chainId, successTypeReceipt, receipt);
+		} else {
+			RequestReceipt.CrossChainFailureReceiptType failureTypeReceipt = abi.decode(
+				receipt.data,
+				(RequestReceipt.CrossChainFailureReceiptType)
+			);
+			_handleCrossChainFailureReceipt(receipt.chainId, failureTypeReceipt, ccipSender);
 		}
 	}
 
@@ -215,6 +205,10 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	 */
 	function _requestNewPoolCreation(uint256 chainId, string memory poolName, address[] memory tokens) internal {
 		ChainPool memory chainPool = s_chainPool[chainId];
+
+		// sort the tokens in ascending order
+		// balancer requires the tokens in ascending order
+		tokens = Arrays._sort(tokens);
 
 		if (chainPool.status != PoolStatus.NOT_CREATED) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
@@ -235,7 +229,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		} else {
 			s_chainPool[chainId].status = PoolStatus.CREATING;
 			address crossChainPoolManager = s_chainCrossChainPoolManager[chainId];
-			uint64 chainSelector = s_chainSelector[chainId];
+			uint64 chainSelector = NetworkHelper._getCCIPChainSelector(chainId);
 
 			if (crossChainPoolManager == address(0)) revert PoolManager__CrossChainPoolManagerNotFound(chainId);
 			if (chainSelector == 0) revert PoolManager__ChainSelectorNotFound(chainId);
@@ -245,7 +239,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				CrossChainCreatePoolRequest({tokens: tokens, poolName: poolName})
 			);
 
-			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, messageData);
+			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, CREATE_POOL_GAS_LIMIT, messageData);
 			//slither-disable-next-line arbitrary-send-eth
 			bytes32 messageId = i_ccipRouterClient.ccipSend{value: fee}(chainSelector, message);
 
@@ -296,6 +290,16 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		}
 	}
 
+	function _handleCrossChainFailureReceipt(
+		uint256 chainId,
+		RequestReceipt.CrossChainFailureReceiptType failureTypeReceipt,
+		address sender
+	) private {
+		if (failureTypeReceipt.isPoolNotCreated()) {
+			emit PoolManaged__FailedToCreateCrossChainPool(chainId, sender);
+		}
+	}
+
 	function _handleCrossChainPoolCreatedReceipt(uint256 chainId, RequestReceipt.CrossChainPoolCreatedReceipt memory receipt) private {
 		ChainPool memory chainPool = s_chainPool[chainId];
 		if (chainPool.status == PoolStatus.ACTIVE) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
@@ -314,6 +318,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	function _buildCrossChainMessage(
 		uint256 chainId,
+		uint256 gasLimit,
 		bytes memory data
 	) private view returns (Client.EVM2AnyMessage memory message, uint256 fee) {
 		message = Client.EVM2AnyMessage({
@@ -321,10 +326,10 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 			data: data,
 			tokenAmounts: new Client.EVMTokenAmount[](0),
 			feeToken: address(0),
-			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: /*TODO: check gas limit*/ 3_000_000}))
+			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit}))
 		});
 
-		fee = i_ccipRouterClient.getFee(s_chainSelector[chainId], message);
+		fee = i_ccipRouterClient.getFee(NetworkHelper._getCCIPChainSelector(chainId), message);
 
 		return (message, fee);
 	}

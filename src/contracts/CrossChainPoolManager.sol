@@ -10,6 +10,7 @@ import {CustomCast} from "src/libraries/CustomCast.sol";
 import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
 
 contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Step {
 	using SafeCrossChainRequestType for CrossChainRequestType;
@@ -61,9 +62,6 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	/// @notice thrown when the CTF address is invalid at the creation of the contract
 	error CrossChainPoolManager__InvalidCTFAddress();
 
-	/// @notice thrown when the CCIP Router Client address is invalid at the creation of the contract
-	error CrossChainPoolManager__InvalidCCIPRouterClient();
-
 	/// @notice thrown when the ETH witdraw fails for some reason
 	error CrossChainPoolManager__FailedToWithdrawETH(bytes errorData);
 
@@ -73,16 +71,15 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	}
 
 	constructor(
-		address ccipRouterClient,
-		address ctf,
-		address balancerManagedPoolFactory,
-		address balancerVault,
-		address admin
-	) Ownable(admin) CCIPReceiver(ccipRouterClient) BalancerPoolManager(balancerManagedPoolFactory, balancerVault) {
-		if (ccipRouterClient == address(0) || ccipRouterClient.code.length == 0) revert CrossChainPoolManager__InvalidCCIPRouterClient();
+		address ctf
+	)
+		Ownable(NetworkHelper._getCTFAdmin())
+		CCIPReceiver(NetworkHelper._getCCIPRouter())
+		BalancerPoolManager(NetworkHelper._getBalancerManagedPoolFactory(), NetworkHelper._getBalancerVault())
+	{
 		if (ctf == address(0)) revert CrossChainPoolManager__InvalidCTFAddress();
 
-		i_CCIPRouterClient = ccipRouterClient;
+		i_CCIPRouterClient = NetworkHelper._getCCIPRouter();
 		i_CTF = ctf;
 	}
 
@@ -127,8 +124,13 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	 * @notice Send the receipt back to the CTF. It can only be called by the contract itself
 	 * @dev We use this function as public to make it possible to use Try-Catch
 	 */
-	function sendReceipt(CCIPReceipt memory ccipReceipt) external onlySelf returns (bytes32 messageId) {
+	function sendReceipt(CCIPReceipt calldata ccipReceipt) external onlySelf returns (bytes32 messageId) {
 		return _rawSendReceipt(ccipReceipt);
+	}
+
+	/// @notice get the CTF that this pool manager is linked to
+	function getCTF() external view returns (address) {
+		return i_CTF;
 	}
 
 	//slither-disable-next-line reentrancy-benign
@@ -167,6 +169,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 
 		s_receipts[message.messageId] = ccipReceipt;
 
+		// solhint-disable-next-line no-empty-blocks
 		try this.sendReceipt(ccipReceipt) {
 			// DO NOTHING
 		} catch (bytes memory errorData) {
@@ -184,8 +187,8 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		emit CrossChainPoolManager__ReceiptSent(ccipReceipt.originMessageId, messageId, ccipReceipt.receipt.receiptType);
 	}
 
-	function _getErrorReceipt(bytes memory data) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
-		CrossChainRequestType requestType = abi.decode(data, (CrossChainRequestType));
+	function _getErrorReceipt(bytes memory ccipMessageData) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
+		CrossChainRequestType requestType = abi.decode(ccipMessageData, (CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
 			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);
@@ -200,7 +203,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 			data: abi.encode(ccipReceipt.receipt),
 			tokenAmounts: new Client.EVMTokenAmount[](0),
 			feeToken: address(0),
-			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: /* TODO: check needed gas limit */ 3_000_000}))
+			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 500_000}))
 		});
 
 		fee = IRouterClient(i_ccipRouter).getFee(ccipReceipt.sourceChainSelector, message);

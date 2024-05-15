@@ -16,4 +16,8 @@ library SafeCrossChainReceipt {
 	function isPoolCreated(RequestReceipt.CrossChainSuccessReceiptType successReceiptType) internal pure returns (bool) {
 		return successReceiptType == RequestReceipt.CrossChainSuccessReceiptType.POOL_CREATED;
 	}
+
+	function isPoolNotCreated(RequestReceipt.CrossChainFailureReceiptType failureReceiptType) internal pure returns (bool) {
+		return failureReceiptType == RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED;
+	}
 }
