@@ -12,4 +12,8 @@ library SafeCrossChainRequestType {
 	function isAddToken(CrossChainRequest.CrossChainRequestType requestType) internal pure returns (bool) {
 		return requestType == CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
 	}
+
+	function isDeposit(CrossChainRequest.CrossChainRequestType requestType) internal pure returns (bool) {
+		return requestType == CrossChainRequest.CrossChainRequestType.DEPOSIT;
+	}
 }

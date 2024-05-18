@@ -14,6 +14,7 @@ library NetworkHelper {
 		address balancerVault;
 		address ccipRouter;
 		address ctfAdmin;
+		address usdcAddress;
 	}
 
 	/// @notice thrown when the current block.chainid config is not defined yet
@@ -27,7 +28,8 @@ library NetworkHelper {
 				_getBalancerManagedPoolFactory(),
 				_getBalancerVault(),
 				_getCCIPRouter(),
-				_getCTFAdmin()
+				_getCTFAdmin(),
+				_getUSDC()
 			);
 	}
 
@@ -59,6 +61,14 @@ library NetworkHelper {
 		if (block.chainid.isAnvil()) return address(0);
 	}
 
+	function _getUSDC() internal view returns (address usdc) {
+		if (block.chainid.isSepolia()) return 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+		if (block.chainid.isArbitrumSepolia()) return 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d;
+		if (block.chainid.isBaseSepolia()) return 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
+		if (block.chainid.isOptimismSepolia()) return 0x5fd84259d66Cd46123540766Be93DFE6D43130D7;
+		if (block.chainid.isAnvil()) return address(0);
+	}
+
 	function _getCCIPChainSelector(uint256 chainid) internal pure returns (uint64 ccipChainSelector) {
 		if (chainid.isSepolia()) return 16015286601757825753;
 		if (chainid.isArbitrumSepolia()) return 3478487238524512106;
@@ -71,5 +81,9 @@ library NetworkHelper {
 
 	function _getCTFAdmin() internal pure returns (address ctfAdmin) {
 		return 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8; // TODO: Replace with a multisig
+	}
+
+	function _getLockerAdmin() internal pure returns (address lockerAdmin) {
+		return 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8; // TODO: Replace with a multisig and different address from the CTF
 	}
 }

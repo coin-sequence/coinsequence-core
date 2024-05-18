@@ -67,3 +67,31 @@ npm run deploy
 ```
 
 And choose the contract that you want to deploy.
+
+### Verify
+
+Sometimes the Thirdweb CLI tools can't verify your contract, you can manually
+verify it by running
+
+```shell
+npm run verify
+```
+
+It will ask you some arguments: `address`, `contract`, `chain` and `rpc`.
+
+- Address: The address of the contract you want to verify
+- Contract: The name of the contract you want to verify or the path to the contract
+- Chain: The chain you want to verify the contract on
+- RPC: The RPC URL you want to use to verify the contract
+
+**Your verify command should look like this**
+
+```shell
+npm run verify --address={ContractAddress} --contract={Contract} --chain={ChainNameOrId} --rpc={RPCUrl}
+```
+
+**Real Example**
+
+```shell
+npm run verify --address=0x6c23B5382b47EF1e91c59ac48D53a595Fd49a70A --contract=CTF --chain=11155420 --rpc=https://optimism-sepolia-rpc.publicnode.com
+```

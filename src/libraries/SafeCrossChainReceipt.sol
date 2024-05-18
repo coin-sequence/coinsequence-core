@@ -20,4 +20,12 @@ library SafeCrossChainReceipt {
 	function isPoolNotCreated(RequestReceipt.CrossChainFailureReceiptType failureReceiptType) internal pure returns (bool) {
 		return failureReceiptType == RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED;
 	}
+
+	function isDeposited(RequestReceipt.CrossChainSuccessReceiptType successReceiptType) internal pure returns (bool) {
+		return successReceiptType == RequestReceipt.CrossChainSuccessReceiptType.DEPOSITED;
+	}
+
+	function isNotDeposited(RequestReceipt.CrossChainFailureReceiptType failureReceiptType) internal pure returns (bool) {
+		return failureReceiptType == RequestReceipt.CrossChainFailureReceiptType.DEPOSIT_FAILED;
+	}
 }

@@ -20,6 +20,7 @@ contract NetworkHelperUnitTest is Test {
 		assertEq(networkConfig.ccipChainSelector, 16015286601757825753, "CCIP chain selector does not match");
 		assertEq(networkConfig.ccipRouter, 0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59, "CCIP router address does not match");
 		assertEq(networkConfig.ctfAdmin, 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "CTF Admin address does not match");
+		assertEq(networkConfig.usdcAddress, 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, "USDC address does not match");
 	}
 
 	function test__getNetworkConfig_forArbitrumSepolia() external {
@@ -37,6 +38,7 @@ contract NetworkHelperUnitTest is Test {
 		assertEq(networkConfig.ccipChainSelector, 3478487238524512106, "CCIP chain selector does not match");
 		assertEq(networkConfig.ccipRouter, 0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165, "CCIP router address does not match");
 		assertEq(networkConfig.ctfAdmin, 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "CTF Admin address does not match");
+		assertEq(networkConfig.usdcAddress, 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d, "USDC address does not match");
 	}
 
 	function test__getNetworkConfig_forBaseSepolia() external {
@@ -54,6 +56,7 @@ contract NetworkHelperUnitTest is Test {
 		assertEq(networkConfig.ccipChainSelector, 10344971235874465080, "CCIP chain selector does not match");
 		assertEq(networkConfig.ccipRouter, 0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93, "CCIP router address does not match");
 		assertEq(networkConfig.ctfAdmin, 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "CTF Admin address does not match");
+		assertEq(networkConfig.usdcAddress, 0x036CbD53842c5426634e7929541eC2318f3dCF7e, "USDC address does not match");
 	}
 
 	function test__getNetworkConfig_forOptimismSepolia() external {
@@ -71,6 +74,7 @@ contract NetworkHelperUnitTest is Test {
 		assertEq(networkConfig.ccipChainSelector, 5224473277236331295, "CCIP chain selector does not match");
 		assertEq(networkConfig.ccipRouter, 0x114A20A10b43D4115e5aeef7345a1A71d2a60C57, "CCIP router address does not match");
 		assertEq(networkConfig.ctfAdmin, 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "CTF Admin address does not match");
+		assertEq(networkConfig.usdcAddress, 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, "USDC address does not match");
 	}
 
 	function test__getNetworkConfig_forAnvil() external {
@@ -84,5 +88,6 @@ contract NetworkHelperUnitTest is Test {
 		assertEq(networkConfig.ccipChainSelector, 0, "CCIP chain selector does not match");
 		assertEq(networkConfig.ccipRouter, address(0), "CCIP router address does not match");
 		assertEq(networkConfig.ctfAdmin, 0x36591DeBffCf727D5EEA2Cb6A745ee905Fae91C8, "CTF Admin address does not match");
+		assertEq(networkConfig.usdcAddress, address(0), "USDC address does not match");
 	}
 }

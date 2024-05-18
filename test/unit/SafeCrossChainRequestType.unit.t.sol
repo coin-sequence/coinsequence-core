@@ -28,4 +28,16 @@ contract SafeCrossChainRequestTypeUnitTest is Test {
 
 		assertFalse(SafeCrossChainRequestType.isAddToken(requestType));
 	}
+
+	function test_isDeposit() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.DEPOSIT;
+
+		assertTrue(SafeCrossChainRequestType.isDeposit(requestType));
+	}
+
+	function test_isNotDeposit() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
+
+		assertFalse(SafeCrossChainRequestType.isDeposit(requestType));
+	}
 }

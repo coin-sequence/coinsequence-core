@@ -39,12 +39,6 @@ abstract contract BalancerPoolManager {
 		i_managedPoolFactory = IBalancerManagedPoolFactoryV2(balancerManagedPoolFactory);
 	}
 
-	/// @notice Returns the join kind that should be used for a given pool
-	function getJoinKind(bytes32 poolId) external view returns (JoinPoolKind) {
-		(, uint256[] memory balances, ) = i_vault.getPoolTokens(poolId);
-		return _getJoinKind(balances);
-	}
-
 	function _createPool(
 		string memory name,
 		string memory symbol,
@@ -89,18 +83,31 @@ abstract contract BalancerPoolManager {
 		(address poolAddress, ) = i_vault.getPool(poolId);
 		uint256 bptAmountBeforeJoin = BalancerIERC20(poolAddress).balanceOf(address(this));
 		(BalancerIERC20[] memory poolTokens, uint256[] memory balances, ) = i_vault.getPoolTokens(poolId);
-		uint256 poolTokensCount = poolTokens.length;
-		uint256[] memory maxAmountsIn = new uint256[](poolTokens.length);
-		JoinPoolKind joinKind = _getJoinKind(balances);
+		uint256 poolTokensCountWithBPT = poolTokens.length;
+		uint256[] memory maxAmountsInWithBPT = new uint256[](poolTokens.length);
+		uint256[] memory amountsInWithoutBPT = new uint256[](poolTokens.length - 1); // -1 to remove the BPT token from the count
+		JoinPoolKind joinKind = balances.sum() > 0 ? JoinPoolKind.EXACT_TOKENS_IN_FOR_BPT_OUT : JoinPoolKind.INIT;
 
-		if (joinKind == JoinPoolKind.INIT && joinAssets.length != poolTokensCount) {
-			revert BalancerPoolManager__JoinAssetsCountMismatch(joinAssets.length, poolTokensCount);
-		}
+		// if (joinKind == JoinPoolKind.INIT && joinAssets.length != poolTokensCountWithBPT) {
+		// 	revert BalancerPoolManager__JoinAssetsCountMismatch(joinAssets.length, poolTokensCountWithBPT);
+		// } // TODO Uncomment if needed
 
-		for (uint256 i = 0; i < poolTokensCount; ) {
+		uint256 bptIndexOffset;
+		for (uint256 i; i < poolTokensCountWithBPT; ) {
+			// we don't want to join with the BPT Token in the pool, so we skip him
+			if (address(poolTokens[i]) == poolAddress) {
+				unchecked {
+					bptIndexOffset = 1;
+					++i;
+				}
+
+				continue;
+			}
+
 			uint256 tokenBalance = poolTokens[i].balanceOf(address(this));
 
-			maxAmountsIn[i] = tokenBalance;
+			maxAmountsInWithBPT[i] = tokenBalance;
+			amountsInWithoutBPT[i - bptIndexOffset] = tokenBalance;
 			poolTokens[i].approve(address(i_vault), tokenBalance);
 
 			unchecked {
@@ -108,9 +115,9 @@ abstract contract BalancerPoolManager {
 			}
 		}
 
-		bytes memory userData = abi.encodePacked(joinKind, maxAmountsIn, minBPTOut);
+		bytes memory userData = abi.encode(joinKind, maxAmountsInWithBPT, minBPTOut);
 
-		IVault.JoinPoolRequest memory joinPoolRequest = IVault.JoinPoolRequest(joinAssets, maxAmountsIn, userData, false);
+		IVault.JoinPoolRequest memory joinPoolRequest = IVault.JoinPoolRequest(poolTokens.asIAsset(), maxAmountsInWithBPT, userData, false);
 		i_vault.joinPool(poolId, address(this), address(this), joinPoolRequest);
 
 		uint256 bptAmountAfterJoin = BalancerIERC20(poolAddress).balanceOf(address(this));
@@ -126,11 +133,6 @@ abstract contract BalancerPoolManager {
 		// managedPool.addToken(BalancerIERC20(tokenToAdd), address(this), newTokensWeight, 0, address(0));
 		// // i_vault.batchSwap(IVault.SwapKind.GIVEN_IN, swaps, assets, funds, limits, deadline);
 		// i_vault.managePoolBalance(ops);
-	}
-
-	function _getJoinKind(uint256[] memory balances) internal pure returns (JoinPoolKind) {
-		if (balances.sum() > 0) return JoinPoolKind.EXACT_TOKENS_IN_FOR_BPT_OUT;
-		return JoinPoolKind.INIT;
 	}
 
 	/**
@@ -150,13 +152,14 @@ abstract contract BalancerPoolManager {
 	 * @return weights the weight of each token in the pool (with balancer decimals, 1e18 for 1)
 	 */
 	function _getTokensWeight(uint256 tokensCount) private pure returns (uint256[] memory weights) {
+		uint256[] memory tokensWeights = new uint256[](tokensCount);
 		uint256 tokensWeightSum;
 
 		for (uint256 i = 0; i < tokensCount; ) {
 			// set equal weight for all tokens
 			// 1e10 is used to equalize to 1e18 decimals after division, as Balancer requires 1e18
 			uint256 tokenWeight = _getTokenWeight(tokensCount);
-			weights[i] = tokenWeight;
+			tokensWeights[i] = tokenWeight;
 			tokensWeightSum += tokenWeight;
 
 			unchecked {
@@ -170,10 +173,12 @@ abstract contract BalancerPoolManager {
 		// this will ensure that the total weight of the pool is equal to NORMALIZED_WEIGHT_SUM.
 		// Not being equal to NORMALIZED_WEIGHT_SUM will result in revert from balancer when creating the pool
 		if (diffBetweenMinWeightAndWeightSum > 0) {
-			weights[0] += diffBetweenMinWeightAndWeightSum;
+			tokensWeights[0] += diffBetweenMinWeightAndWeightSum;
 		}
 
-		assert(weights.length == tokensCount);
+		assert(tokensWeights.length == tokensCount);
+
+		return tokensWeights;
 	}
 
 	function _covertFromBalancerIERC20ToOpenZeppelinIERC20(

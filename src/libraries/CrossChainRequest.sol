@@ -20,5 +20,7 @@ library CrossChainRequest {
 		IAsset[] joinTokens;
 		bytes32 poolId;
 		uint256 minBPTOut;
+		address swapProvider;
+		bytes[] swapsCalldata;
 	}
 }

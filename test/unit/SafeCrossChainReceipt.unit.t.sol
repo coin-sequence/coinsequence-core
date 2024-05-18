@@ -29,4 +29,12 @@ contract SafeCrossChainReceiptUnitTest is Test {
 	function test_isNotPoolCreated() external pure {
 		assertFalse(SafeCrossChainReceipt.isPoolCreated(RequestReceipt.CrossChainSuccessReceiptType.TOKEN_ADDED));
 	}
+
+	function test_isDeposited() external pure {
+		assertTrue(SafeCrossChainReceipt.isDeposited(RequestReceipt.CrossChainSuccessReceiptType.DEPOSITED));
+	}
+
+	function test_isNotDeposited() external pure {
+		assertFalse(SafeCrossChainReceipt.isDeposited(RequestReceipt.CrossChainSuccessReceiptType.TOKEN_ADDED));
+	}
 }

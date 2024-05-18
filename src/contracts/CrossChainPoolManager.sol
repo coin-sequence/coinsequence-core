@@ -10,20 +10,24 @@ import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
+import {Swap} from "src/contracts/Swap.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Step {
+contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Step, Swap {
+	using SafeERC20 for IERC20;
 	using SafeCrossChainRequestType for CrossChainRequest.CrossChainRequestType;
 	using Strings for uint256;
 	using CustomCast for address[];
 
 	struct CCIPReceipt {
 		RequestReceipt.CrossChainReceipt receipt;
-		uint64 sourceChainSelector;
 		bytes sender;
 		bytes32 originMessageId;
+		uint256 usdcAmount;
+		uint64 sourceChainSelector;
+		address usdcAddress;
 	}
 
-	address private immutable i_CCIPRouterClient;
 	address private immutable i_CTF;
 
 	mapping(bytes32 originMessageId => CCIPReceipt ccipReceipt) private s_receipts;
@@ -46,6 +50,12 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		RequestReceipt.CrossChainReceiptType indexed receiptType
 	);
 
+	/// @notice emitted once the requested deposit was successful
+	event CrossChainPoolManager__Deposited(bytes32 indexed poolId, bytes32 indexed depositId, uint256 usdcAmount, uint256 bptreceived);
+
+	/// @notice emitted once the ETH was withdrawn by the Admin
+	event CrossChainPoolManager__ETHWithdrawn(uint256 amount);
+
 	/// @notice thrown when the ccip received message sender is not the CTF
 	error CrossChainPoolManager__SenderIsNotCTF(address sender, address ctf);
 
@@ -54,6 +64,9 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 
 	/// @notice thrown when the message couldn't be processed and we don't know what it is
 	error CrossChainPoolManager__UnknownMessage(bytes32 messageId, bytes messageData);
+
+	/// @notice thrown when the receipt couldn't be generated for the message because the request type is unknown
+	error CrossChainPoolManager__UnknownReceipt(bytes32 messageId);
 
 	/// @notice thrown when someone tries to re-send a receipt which didn't fail
 	error CrossChainPoolManager__CannotRetrySendReceipt(bytes32 originMessageId);
@@ -77,8 +90,6 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		BalancerPoolManager(NetworkHelper._getBalancerManagedPoolFactory(), NetworkHelper._getBalancerVault())
 	{
 		if (ctf == address(0)) revert CrossChainPoolManager__InvalidCTFAddress();
-
-		i_CCIPRouterClient = NetworkHelper._getCCIPRouter();
 		i_CTF = ctf;
 	}
 
@@ -94,6 +105,8 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		(bool success, bytes memory data) = owner().call{value: amount}("");
 
 		if (!success) revert CrossChainPoolManager__FailedToWithdrawETH(data);
+
+		emit CrossChainPoolManager__ETHWithdrawn(amount);
 	}
 
 	/// @notice re-send a failed-to-send receipt
@@ -108,18 +121,27 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	 * 	@notice Process the CCIP Message received. It can only be called by the contract itself
 	 *  @dev We use this function as external to make it possible to use Try-Catch
 	 */
-	function processCCIPMessage(bytes32 messageId, bytes calldata data) external onlySelf returns (RequestReceipt.CrossChainReceipt memory) {
-		CrossChainRequest.CrossChainRequestType requestType = abi.decode(data, (CrossChainRequest.CrossChainRequestType));
+	function processCCIPMessage(Client.Any2EVMMessage calldata message) external onlySelf returns (RequestReceipt.CrossChainReceipt memory) {
+		CrossChainRequest.CrossChainRequestType requestType = abi.decode(message.data, (CrossChainRequest.CrossChainRequestType));
 
 		if (requestType.isCreatePool()) {
 			(, CrossChainRequest.CrossChainCreatePoolRequest memory request) = abi.decode(
-				data,
+				message.data,
 				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainCreatePoolRequest)
 			);
 			return _createPool(request);
 		}
 
-		revert CrossChainPoolManager__UnknownMessage(messageId, data);
+		if (requestType.isDeposit()) {
+			(, CrossChainRequest.CrossChainDepositRequest memory request) = abi.decode(
+				message.data,
+				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainDepositRequest)
+			);
+
+			return _deposit(request, message.destTokenAmounts[0].amount, IERC20(message.destTokenAmounts[0].token));
+		}
+
+		revert CrossChainPoolManager__UnknownMessage(message.messageId, message.data);
 	}
 
 	/**
@@ -140,11 +162,10 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		address messageSender = abi.decode(message.sender, (address));
 		if (messageSender != i_CTF) revert CrossChainPoolManager__SenderIsNotCTF(messageSender, i_CTF);
 
-		try this.processCCIPMessage(message.messageId, message.data) returns (RequestReceipt.CrossChainReceipt memory receipt) {
-			_sendReceipt(message, receipt);
+		try this.processCCIPMessage(message) returns (RequestReceipt.CrossChainReceipt memory receipt) {
+			_sendReceipt(message, receipt, 0, address(0));
 		} catch {
-			RequestReceipt.CrossChainReceipt memory receipt = _getErrorReceipt(message.data);
-			_sendReceipt(message, receipt);
+			_executeErrorActions(message);
 		}
 	}
 
@@ -162,13 +183,33 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		return RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, request.tokens);
 	}
 
+	function _deposit(
+		CrossChainRequest.CrossChainDepositRequest memory request,
+		uint256 usdcAmountReceived,
+		IERC20 usdc
+	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
+		_swapUSDC(usdc, usdcAmountReceived, request.swapProvider, request.swapsCalldata);
+		uint256 bptReceived = _joinPool(request.poolId, request.joinTokens, request.minBPTOut);
+
+		emit CrossChainPoolManager__Deposited(request.poolId, request.depositId, usdcAmountReceived, bptReceived);
+
+		return RequestReceipt.crossChainDepositedReceipt(request.depositId, bptReceived);
+	}
+
 	//slither-disable-next-line reentrancy-benign
-	function _sendReceipt(Client.Any2EVMMessage memory message, RequestReceipt.CrossChainReceipt memory receipt) private {
+	function _sendReceipt(
+		Client.Any2EVMMessage memory message,
+		RequestReceipt.CrossChainReceipt memory receipt,
+		uint256 usdcAmount,
+		address usdcAddress
+	) private {
 		CCIPReceipt memory ccipReceipt = CCIPReceipt({
 			receipt: receipt,
 			originMessageId: message.messageId,
 			sourceChainSelector: message.sourceChainSelector,
-			sender: message.sender
+			sender: message.sender,
+			usdcAmount: usdcAmount,
+			usdcAddress: usdcAddress
 		});
 
 		s_receipts[message.messageId] = ccipReceipt;
@@ -191,21 +232,50 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		emit CrossChainPoolManager__ReceiptSent(ccipReceipt.originMessageId, messageId, ccipReceipt.receipt.receiptType);
 	}
 
-	function _getErrorReceipt(bytes memory ccipMessageData) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
-		CrossChainRequest.CrossChainRequestType requestType = abi.decode(ccipMessageData, (CrossChainRequest.CrossChainRequestType));
+	function _executeErrorActions(Client.Any2EVMMessage memory message) private {
+		CrossChainRequest.CrossChainRequestType requestType = abi.decode(message.data, (CrossChainRequest.CrossChainRequestType));
 
+		if (requestType.isDeposit()) {
+			(, CrossChainRequest.CrossChainDepositRequest memory depositRequest) = abi.decode(
+				message.data,
+				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainDepositRequest)
+			);
+			RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainDepositFailedReceipt(depositRequest.depositId);
+			return _sendReceipt(message, receipt, message.destTokenAmounts[0].amount, message.destTokenAmounts[0].token);
+		}
+
+		_sendReceipt(message, _getGenericErrorReceipt(message.messageId, requestType), 0, address(0));
+	}
+
+	function _getGenericErrorReceipt(
+		bytes32 ccipMessageId,
+		CrossChainRequest.CrossChainRequestType requestType
+	) private view returns (RequestReceipt.CrossChainReceipt memory receipt) {
 		if (requestType.isCreatePool()) {
 			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);
 		}
+
+		if (requestType.isDeposit()) {
+			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.DEPOSIT_FAILED);
+		}
+
+		revert CrossChainPoolManager__UnknownReceipt(ccipMessageId);
 	}
 
 	function _buildReceiptCCIPMessage(
 		CCIPReceipt memory ccipReceipt
 	) private view returns (Client.EVM2AnyMessage memory message, uint256 fee) {
+		Client.EVMTokenAmount[] memory tokens;
+
+		if (ccipReceipt.usdcAmount != 0) {
+			tokens = new Client.EVMTokenAmount[](1);
+			tokens[0] = Client.EVMTokenAmount({token: ccipReceipt.usdcAddress, amount: ccipReceipt.usdcAmount});
+		}
+
 		message = Client.EVM2AnyMessage({
 			receiver: ccipReceipt.sender,
 			data: abi.encode(ccipReceipt.receipt),
-			tokenAmounts: new Client.EVMTokenAmount[](0),
+			tokenAmounts: tokens,
 			feeToken: address(0),
 			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 500_000}))
 		});

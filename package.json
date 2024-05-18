@@ -16,10 +16,10 @@
   },
   "scripts": {
     "lint": "solhint 'src/**/*.sol' --max-warnings 0",
-    "test": "forge test -vvv",
+    "test": "forge test -vvv --via-ir",
     "analyze": "slither .",
-    "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
+    "verify": "forge verify-contract --watch --guess-constructor-args --chain \"${npm_config_chain}\" --rpc-url \"${npm_config_rpc}\" \"${npm_config_address}\" \"${npm_config_contract}\"",
     "postinstall": "forge install"
   },
   "repository": {
