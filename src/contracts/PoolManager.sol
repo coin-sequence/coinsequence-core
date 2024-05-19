@@ -5,7 +5,7 @@ import {SafeChain} from "src/libraries/SafeChain.sol";
 import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IRouterClient, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {AccessControlDefaultAdminRules, IAccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
+import {AccessControlDefaultAdminRules, IAccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol"; //solhint-disable-line max-line-length
 import {CrossChainRequest} from "src/libraries/CrossChainRequest.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
