@@ -5,7 +5,7 @@ import {SafeChain} from "src/libraries/SafeChain.sol";
 import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IRouterClient, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {AccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
+import {AccessControlDefaultAdminRules, IAccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {CrossChainRequest} from "src/libraries/CrossChainRequest.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
@@ -238,8 +238,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		return s_chainPool[chainId];
 	}
 
-	function supportsInterface(bytes4 interfaceId) public view override(AccessControlDefaultAdminRules, CCIPReceiver) returns (bool) {
-		return AccessControlDefaultAdminRules.supportsInterface(interfaceId) || CCIPReceiver.supportsInterface(interfaceId);
+	function supportsInterface(bytes4 interfaceId) public pure override(AccessControlDefaultAdminRules, CCIPReceiver) returns (bool) {
+		return interfaceId == type(IAccessControlDefaultAdminRules).interfaceId || CCIPReceiver.supportsInterface(interfaceId);
 	}
 
 	function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
