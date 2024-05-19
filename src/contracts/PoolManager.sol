@@ -43,6 +43,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	struct ChainPool {
 		address poolAddress;
 		address[] poolTokens;
+		uint256[] weights;
 		bytes32 poolId;
 		PoolStatus status;
 	}
@@ -55,7 +56,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	}
 
 	uint256 private constant CREATE_POOL_GAS_LIMIT = 3_000_000;
-	uint256 private constant DEPOSIT_GAS_LIMIT = 3_000_000; // TODO: Check how much gas is needed
+	uint256 private constant DEPOSIT_GAS_LIMIT = 750_000;
 	uint48 private constant ADMIN_TRANSFER_DELAY = 7 days;
 
 	bytes32 public constant TOKENS_MANAGER_ROLE = "TOKENS_MANAGER";
@@ -66,7 +67,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	mapping(bytes32 depositId => mapping(uint256 chainId => ChainDeposit)) private s_deposits;
 	mapping(uint256 chainId => ChainPool pool) private s_chainPool;
 	EnumerableSet.UintSet internal s_chainsSet;
-	IERC20 internal s_usdc;
+	IERC20 internal immutable i_usdc;
 
 	/// @notice emitted once the Pool for the same chain as the CTF is successfully created.
 	event PoolManager__SameChainPoolCreated(bytes32 indexed poolId, address indexed poolAddress, address[] tokens);
@@ -101,11 +102,11 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	/// @notice emitted once an amount of ETH has been withdrawn from the Pool Manager
 	event PoolManager__ETHWithdrawn(uint256 amount);
 
-	/// @notice emitted once the USDC address has been changed
-	event PoolManager__USDCAddressChanged(address newAddress, address oldAddress);
-
 	/// @notice emitted once the deposits on all pools across all chains have been confirmed
 	event PoolManager__AllDepositsConfirmed(bytes32 indexed depositId, address indexed user);
+
+	/// @notice emitted once one Cross Chain Deposit receipt is reived
+	event PoolManager__CrossChainDepositConfirmed(uint256 chainId, address indexed user, bytes32 indexed depositId);
 
 	/**
 	 * @notice emitted when the Pool Manager receives the Cross Chain Pool not created receipt
@@ -161,9 +162,6 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	///  @notice thrown when the pool for the given chain is not active yet
 	error PoolManager__PoolNotActive(uint256 chainId);
 
-	/// @notice thrown if the USDC address passed is invalid
-	error PoolManager__InvalidUSDC(address usdcAddress);
-
 	constructor(
 		address balancerManagedPoolFactory,
 		address balancerVault,
@@ -176,7 +174,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	{
 		i_ccipRouterClient = IRouterClient(ccipRouterClient);
 		s_chainsSet.add(block.chainid);
-		s_usdc = IERC20(NetworkHelper._getUSDC());
+		i_usdc = IERC20(NetworkHelper._getUSDC());
 	}
 
 	receive() external payable {}
@@ -194,18 +192,6 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		if (!success) revert PoolManager__FailedToWithdrawETH(data);
 
 		emit PoolManager__ETHWithdrawn(amount);
-	}
-
-	/**
-	 * @notice set the USDC token address. Only the admin can perform this action
-	 * @param usdc the new address of USDC
-	 */
-	function setUSDC(address usdc) external onlyRole(DEFAULT_ADMIN_ROLE) {
-		if (usdc.code.length == 0) revert PoolManager__InvalidUSDC(usdc);
-
-		emit PoolManager__USDCAddressChanged(usdc, address(s_usdc));
-
-		s_usdc = IERC20(usdc);
 	}
 
 	/**
@@ -228,11 +214,6 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		emit PoolManager__CrossChainPoolManagerSet(chainId, crossChainPoolManager);
 	}
 
-	/// @notice get the USDC address used by the Pool Manager
-	function getUSDC() external view returns (address) {
-		return address(s_usdc);
-	}
-
 	/**
 	 * @notice get the chains that the underlying tokens are on
 	 * @return chains the array of chains without duplicates
@@ -243,7 +224,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/**
 	 * @notice get the Cross Chain Pool Manager contract for the given chain
-	 * @param chainId the chain id that the Cross Chain Pool Manager contract is in
+	 * @param chainId the chain id that the Cross Chain Pool Manager contract is on
 	 *  */
 	function getCrossChainPoolManager(uint256 chainId) external view returns (address) {
 		return s_chainCrossChainPoolManager[chainId];
@@ -251,7 +232,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/**
 	 * @notice get the Pool info for the given chain
-	 * @param chainId the chain id that the Pool contract is in
+	 * @param chainId the chain id that the Pool contract is on
 	 *  */
 	function getChainPool(uint256 chainId) public view returns (ChainPool memory) {
 		return s_chainPool[chainId];
@@ -290,14 +271,12 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	function _requestPoolDeposit(
 		bytes32 depositId,
 		uint256 chainId,
-		address[] memory assets,
 		address swapProvider,
 		bytes[] calldata swapsCalldata,
 		uint256 minBPTOut,
 		uint256 depositUSDCAmount
 	) internal {
-		assets = Arrays.sort(assets);
-		IERC20 usdc = s_usdc;
+		IERC20 usdc = i_usdc;
 
 		if (!s_chainsSet.contains(chainId)) revert PoolManager__UnknownChain(chainId);
 		ChainPool memory chainPool = s_chainPool[chainId];
@@ -306,7 +285,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 		if (chainId.isCurrent()) {
 			_swapUSDC(IERC20(usdc), depositUSDCAmount, swapProvider, swapsCalldata);
-			uint256 bptReceived = _joinPool(chainPool.poolId, assets.toIAssetList(), minBPTOut);
+			uint256 bptReceived = _joinPool(chainPool.poolId, minBPTOut);
 
 			s_deposits[depositId][chainId] = ChainDeposit(DepositStatus.DEPOSITED, msg.sender, bptReceived, depositUSDCAmount);
 			if (s_chainsSet.length() == 1) _onDeposit(msg.sender, bptReceived);
@@ -324,7 +303,6 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				CrossChainRequest.CrossChainRequestType.DEPOSIT,
 				CrossChainRequest.CrossChainDepositRequest({
 					depositId: depositId,
-					joinTokens: assets.toIAssetList(),
 					poolId: chainPool.poolId,
 					minBPTOut: minBPTOut,
 					swapProvider: swapProvider,
@@ -334,7 +312,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 			bytes32 messageId;
 
-			// we use scopes here because somehow, stack too deep error is being thrown
+			// we use scopes here because somehow stack too deep error is being thrown
 			{
 				(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(
 					chainId,
@@ -366,15 +344,16 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		if (chainPool.status != PoolStatus.NOT_CREATED) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
 		if (chainId.isCurrent()) {
-			s_chainPool[chainId].poolTokens = tokens;
-			s_chainPool[chainId].status = PoolStatus.ACTIVE;
+			//slither-disable-next-line reentrancy-no-eth
+			(address poolAddress, bytes32 poolId, uint256[] memory weights) = _createPool(poolName, chainId.toString(), tokens.toIERC20List());
 
-			(address poolAddress, bytes32 poolId) = _createPool(poolName, chainId.toString(), tokens.toIERC20List());
-
-			//slither-disable-start reentrancy-no-eth
-			s_chainPool[chainId].poolAddress = poolAddress;
-			s_chainPool[chainId].poolId = poolId;
-			//slither-disable-end reentrancy-no-eth
+			s_chainPool[chainId] = ChainPool({
+				poolAddress: poolAddress,
+				poolId: poolId,
+				poolTokens: tokens,
+				status: PoolStatus.ACTIVE,
+				weights: weights
+			});
 
 			_onCreatePool(chainId, tokens);
 
@@ -400,29 +379,29 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		}
 	}
 
-	/**
-	 * @notice Add the given token to an existing pool at the given chain
-	 * @param chainId the chain that the pool is in
-	 * @param token the token that will be added to the pool
-	 * @param pool the pool that the token will be added to
-	 */
-	function _requestTokenAddition(uint256 chainId, address token, address pool) internal {
-		ChainPool memory chainPool = s_chainPool[chainId];
+	// /**
+	//  * @notice Add the given token to an existing pool at the given chain
+	//  * @param chainId the chain that the pool is in
+	//  * @param token the token that will be added to the pool
+	//  * @param pool the pool that the token will be added to
+	//  */
+	// function _requestTokenAddition(uint256 chainId, address token, address pool) internal {
+	// 	ChainPool memory chainPool = s_chainPool[chainId];
 
-		if (chainId.isCurrent()) {} else {}
-	}
+	// 	if (chainId.isCurrent()) {} else {}
+	// }
 
-	/**
-	 * @notice Batch token add for the given pool at the given chain
-	 * @param chainId the chain that the pool is in
-	 * @param tokens the tokens that will be added to the pool
-	 * @param pool the pool that the token will be added to
-	 */
-	function _requestBatchTokenAddition(uint256 chainId, address[] memory tokens, address pool) internal {
-		ChainPool memory chainPool = s_chainPool[chainId];
+	// /**
+	//  * @notice Batch token add for the given pool at the given chain
+	//  * @param chainId the chain that the pool is in
+	//  * @param tokens the tokens that will be added to the pool
+	//  * @param pool the pool that the token will be added to
+	//  */
+	// function _requestBatchTokenAddition(uint256 chainId, address[] memory tokens, address pool) internal {
+	// 	ChainPool memory chainPool = s_chainPool[chainId];
 
-		if (chainId.isCurrent()) {} else {}
-	}
+	// 	if (chainId.isCurrent()) {} else {}
+	// }
 
 	function _handleCrossChainSuccessReceipt(
 		uint256 chainId,
@@ -478,7 +457,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 			status: PoolStatus.ACTIVE,
 			poolAddress: receipt.poolAddress,
 			poolId: receipt.poolId,
-			poolTokens: receipt.tokens
+			poolTokens: receipt.tokens,
+			weights: receipt.weights
 		});
 
 		_onCreatePool(chainId, receipt.tokens);
@@ -488,8 +468,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	function _handleCrossChainDepositedReceipt(uint256 chainId, RequestReceipt.CrossChainDepositedReceipt memory receipt) private {
 		uint256 chains = s_chainsSet.length();
-		uint256 confirmedDeposits;
-		uint256 totalReceivedBpt;
+		uint256 confirmedDeposits = 0;
+		uint256 totalReceivedBpt = 0;
 		address user = s_deposits[receipt.depositId][chainId].user;
 
 		s_deposits[receipt.depositId][chainId].status = DepositStatus.DEPOSITED;
@@ -512,6 +492,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 			emit PoolManager__AllDepositsConfirmed(receipt.depositId, user);
 
 			_onDeposit(user, totalReceivedBpt);
+		} else {
+			emit PoolManager__CrossChainDepositConfirmed(chainId, user, receipt.depositId);
 		}
 	}
 
@@ -521,8 +503,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	) private {
 		uint256 chainsCount = s_chainsSet.length();
 		address user = s_deposits[depositFailedReceipt.depositId][chainId].user;
-		uint256 failedChainsCount;
-		uint256 totalDepositAmount;
+		uint256 failedChainsCount = 0;
+		uint256 totalDepositAmount = 0;
 
 		s_deposits[depositFailedReceipt.depositId][chainId].status = DepositStatus.FAILED;
 
@@ -534,9 +516,9 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				++failedChainsCount;
 			}
 
-			if (chainDeposit.status == DepositStatus.DEPOSITED) {
-				// TODO: WITHDRAW request from chain
-			}
+			// if (chainDeposit.status == DepositStatus.DEPOSITED) {
+			// TODO: WITHDRAW request from chain
+			// }
 
 			unchecked {
 				++i;
@@ -546,7 +528,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		if (chainsCount == failedChainsCount) {
 			emit PoolManager__FailedToDeposit(user, depositFailedReceipt.depositId, totalDepositAmount);
 
-			s_usdc.safeTransfer(user, totalDepositAmount);
+			i_usdc.safeTransfer(user, totalDepositAmount);
 		}
 	}
 
@@ -565,11 +547,11 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		uint256 usdcAmount,
 		bytes memory data
 	) private view returns (Client.EVM2AnyMessage memory message, uint256 fee) {
-		Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0); // TODO: Check if needed to assign the variable
+		Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0);
 
 		if (usdcAmount != 0) {
 			tokenAmounts = new Client.EVMTokenAmount[](1);
-			tokenAmounts[0] = Client.EVMTokenAmount({token: address(s_usdc), amount: usdcAmount});
+			tokenAmounts[0] = Client.EVMTokenAmount({token: address(i_usdc), amount: usdcAmount});
 		}
 
 		message = Client.EVM2AnyMessage({

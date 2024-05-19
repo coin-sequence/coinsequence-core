@@ -27,7 +27,7 @@ contract CTF is PoolManager, ERC20Permit {
 
 	address[] private s_underlyingTokens;
 	uint256[] private s_chains;
-	uint256 private s_depositNounce;
+	uint256 private s_depositNonce;
 
 	/**
 	 * @notice emitted once a deposit is successfully made and CTF tokens are minted
@@ -54,23 +54,19 @@ contract CTF is PoolManager, ERC20Permit {
 	error CTF__MinBPTOutLengthMismatch(uint256 minBPTOutLength, uint256 chainsLength);
 
 	/**
-	 * @notice thrown when try to perform actions in a pool that is not in Active state
+	 * @notice thrown when trying to perform actions in a pool that is not in Active state
 	 * e.g add new underlying tokens
 	 *  */
 	error Pool__NotActive(uint256 chainId);
 
 	constructor(
 		string memory ctfName,
-		string memory ctfSymbol
+		string memory ctfSymbol,
+		address admin
 	)
 		ERC20(ctfName, ctfSymbol)
 		ERC20Permit(ctfName)
-		PoolManager(
-			NetworkHelper._getBalancerManagedPoolFactory(),
-			NetworkHelper._getBalancerVault(),
-			NetworkHelper._getCCIPRouter(),
-			NetworkHelper._getCTFAdmin()
-		)
+		PoolManager(NetworkHelper._getBalancerManagedPoolFactory(), NetworkHelper._getBalancerVault(), NetworkHelper._getCCIPRouter(), admin)
 	{}
 
 	/**
@@ -79,19 +75,17 @@ contract CTF is PoolManager, ERC20Permit {
 	 * @param swapsCalldata the swaps calldata for each chain.
 	 * @param minBPTOut the min BPT out for each chain.
 	 * @param usdcAmountPerChain the USDC Amount to send for each chain to execute the swap (with decimals)
-	 * @param totalUSDCAmount the total amount of USDC that will be used for all chains (with decimals)
 	 * @custom:note the @param swapProviders, @param swapsCalldata and @param minBPTOut are corretaled
 	 * so they must be in the same order, as they all will be used in the same chain.
-	 * Also they should have the same length as the chains that the Underlying Tokens are on
+	 * Also they should have the same length as the chains array, and also the same order as the chains array
 	 *  */
 	function deposit(
 		address[] calldata swapProviders,
 		bytes[][] calldata swapsCalldata,
 		uint256[] calldata minBPTOut,
-		uint256[] calldata usdcAmountPerChain,
-		uint256 totalUSDCAmount
+		uint256 usdcAmountPerChain
 	) external {
-		bytes32 depositId = keccak256(abi.encodePacked(block.number, msg.sender, ++s_depositNounce));
+		bytes32 depositId = keccak256(abi.encodePacked(block.number, msg.sender, ++s_depositNonce));
 
 		uint256 chainsLength = s_chainsSet.length();
 
@@ -99,19 +93,11 @@ contract CTF is PoolManager, ERC20Permit {
 		if (chainsLength != swapsCalldata.length) revert CTF__SwapsCallDataLengthMismatch(swapsCalldata.length, chainsLength);
 		if (chainsLength != minBPTOut.length) revert CTF__MinBPTOutLengthMismatch(minBPTOut.length, chainsLength);
 
-		s_usdc.safeTransferFrom(msg.sender, address(this), totalUSDCAmount);
+		i_usdc.safeTransferFrom(msg.sender, address(this), usdcAmountPerChain * chainsLength);
 
 		for (uint256 i = 0; i < chainsLength; ) {
 			uint256 chainId = s_chainsSet.at(i);
-			_requestPoolDeposit(
-				depositId,
-				chainId,
-				s_chainUnderlyingTokens[chainId],
-				swapProviders[i],
-				swapsCalldata[i],
-				minBPTOut[i],
-				usdcAmountPerChain[i]
-			);
+			_requestPoolDeposit(depositId, chainId, swapProviders[i], swapsCalldata[i], minBPTOut[i], usdcAmountPerChain);
 
 			unchecked {
 				++i;
@@ -174,14 +160,18 @@ contract CTF is PoolManager, ERC20Permit {
 				_requestNewPoolCreation({poolName: string.concat(name(), " ", "Pool"), chainId: tokenChain, tokens: chainTokensToBeAdded});
 
 				//slither-disable-next-line costly-loop
-			} else if (chainPool.status == PoolStatus.ACTIVE) {
-				chainTokensToBeAddedLength > 1
-					? _requestBatchTokenAddition({chainId: tokenChain, tokens: chainTokensToBeAdded, pool: chainPool.poolAddress})
-					: _requestTokenAddition({chainId: tokenChain, token: underlyingTokens[i], pool: chainPool.poolAddress});
-			} else {
+			}
+			// else if (chainPool.status == PoolStatus.ACTIVE) {
+			// TODO: Add Tokens functionality
+			// chainTokensToBeAddedLength > 1
+			// 	? _requestBatchTokenAddition({chainId: tokenChain, tokens: chainTokensToBeAdded, pool: chainPool.poolAddress})
+			// 	: _requestTokenAddition({chainId: tokenChain, token: underlyingTokens[i], pool: chainPool.poolAddress});
+			// }
+			else {
 				revert Pool__NotActive(tokenChain);
 			}
 
+			//slither-disable-next-line costly-loop
 			delete s_chainTokensToBeAdded[tokenChain];
 
 			unchecked {
@@ -207,25 +197,33 @@ contract CTF is PoolManager, ERC20Permit {
 
 		if (chainPool.status == PoolStatus.NOT_CREATED) {
 			_requestNewPoolCreation({poolName: string.concat(name(), " ", "Pool"), chainId: block.chainid, tokens: underlyingTokens});
-		} else if (chainPool.status == PoolStatus.ACTIVE) {
-			_requestBatchTokenAddition({chainId: block.chainid, tokens: underlyingTokens, pool: chainPool.poolAddress});
-		} else {
+		}
+		//  else if (chainPool.status == PoolStatus.ACTIVE) {
+		// 	// _requestBatchTokenAddition({chainId: block.chainid, tokens: underlyingTokens, pool: chainPool.poolAddress});
+		// }
+		else {
 			revert Pool__NotActive(block.chainid);
 		}
 	}
 
 	function _onCreatePool(uint256 chainId, address[] memory tokens) internal override {
+		address[] memory underlyingTokens = s_underlyingTokens;
+		address[] memory chainUnderlyingTokens = s_chainUnderlyingTokens[chainId];
 		uint256 tokensLength = tokens.length;
 
 		for (uint256 i = 0; i < tokensLength; ) {
-			s_chainUnderlyingTokens[chainId].push(tokens[i]);
-			s_underlyingTokens.push(tokens[i]);
-			s_chains.push(chainId);
+			chainUnderlyingTokens[chainUnderlyingTokens.length] = tokens[i];
+			underlyingTokens[underlyingTokens.length] = tokens[i];
 
 			unchecked {
 				++i;
 			}
 		}
+
+		s_chains.push(chainId);
+		s_chainUnderlyingTokens[chainId] = chainUnderlyingTokens;
+		//slither-disable-next-line costly-loop
+		s_underlyingTokens = underlyingTokens;
 	}
 
 	function _onDeposit(address user, uint256 totalBPTReceived) internal virtual override {

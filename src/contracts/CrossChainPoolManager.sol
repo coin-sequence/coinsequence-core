@@ -83,9 +83,10 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	}
 
 	constructor(
-		address ctf
+		address ctf,
+		address admin
 	)
-		Ownable(NetworkHelper._getCTFAdmin())
+		Ownable(admin)
 		CCIPReceiver(NetworkHelper._getCCIPRouter())
 		BalancerPoolManager(NetworkHelper._getBalancerManagedPoolFactory(), NetworkHelper._getBalancerVault())
 	{
@@ -119,7 +120,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 
 	/**
 	 * 	@notice Process the CCIP Message received. It can only be called by the contract itself
-	 *  @dev We use this function as external to make it possible to use Try-Catch
+	 *  @dev We use this function as external to make it possible the use of Try-Catch
 	 */
 	function processCCIPMessage(Client.Any2EVMMessage calldata message) external onlySelf returns (RequestReceipt.CrossChainReceipt memory) {
 		CrossChainRequest.CrossChainRequestType requestType = abi.decode(message.data, (CrossChainRequest.CrossChainRequestType));
@@ -172,7 +173,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	function _createPool(
 		CrossChainRequest.CrossChainCreatePoolRequest memory request
 	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
-		(address poolAddress, bytes32 poolId) = super._createPool({
+		(address poolAddress, bytes32 poolId, uint256[] memory weights) = super._createPool({
 			name: request.poolName,
 			symbol: block.chainid.toString(),
 			initialTokens: request.tokens.toIERC20List()
@@ -180,7 +181,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 
 		emit CrossChainPoolManager__PoolCreated(poolAddress, poolId, request.tokens);
 
-		return RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, request.tokens);
+		return RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, request.tokens, weights);
 	}
 
 	function _deposit(
@@ -189,7 +190,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		IERC20 usdc
 	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
 		_swapUSDC(usdc, usdcAmountReceived, request.swapProvider, request.swapsCalldata);
-		uint256 bptReceived = _joinPool(request.poolId, request.joinTokens, request.minBPTOut);
+		uint256 bptReceived = _joinPool(request.poolId, request.minBPTOut);
 
 		emit CrossChainPoolManager__Deposited(request.poolId, request.depositId, usdcAmountReceived, bptReceived);
 
@@ -255,16 +256,13 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.POOL_CREATION_FAILED);
 		}
 
-		if (requestType.isDeposit()) {
-			return RequestReceipt.crossChainGenericFailedReceipt(RequestReceipt.CrossChainFailureReceiptType.DEPOSIT_FAILED);
-		}
-
 		revert CrossChainPoolManager__UnknownReceipt(ccipMessageId);
 	}
 
 	function _buildReceiptCCIPMessage(
 		CCIPReceipt memory ccipReceipt
 	) private view returns (Client.EVM2AnyMessage memory message, uint256 fee) {
+		//slither-disable-next-line uninitialized-local
 		Client.EVMTokenAmount[] memory tokens;
 
 		if (ccipReceipt.usdcAmount != 0) {

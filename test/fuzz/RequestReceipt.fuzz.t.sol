@@ -9,11 +9,12 @@ contract ReceiptFuzzTest is Test {
 		uint64 chainId,
 		address poolAddress,
 		bytes32 poolId,
-		address[] calldata tokens
+		address[] calldata tokens,
+		uint256[] calldata weights
 	) external {
 		vm.chainId(chainId);
 
-		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens);
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens, weights);
 
 		assertEq(receipt.chainId, chainId, "Receipt Chain ID should match with the chain sent");
 	}
@@ -28,8 +29,13 @@ contract ReceiptFuzzTest is Test {
 		assertEq(receipt.chainId, chainId, "Receipt Chain ID should match with the chain sent");
 	}
 
-	function testFuzz_crossChainPoolCreatedReceipt_receiptType(address poolAddress, bytes32 poolId, address[] calldata tokens) external view {
-		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens);
+	function testFuzz_crossChainPoolCreatedReceipt_receiptType(
+		address poolAddress,
+		bytes32 poolId,
+		address[] calldata tokens,
+		uint256[] calldata weights
+	) external view {
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens, weights);
 
 		assertTrue(receipt.receiptType == RequestReceipt.CrossChainReceiptType.SUCCESS, "Receipt type should be success");
 	}
@@ -37,9 +43,10 @@ contract ReceiptFuzzTest is Test {
 	function testFuzz_crossChainPoolCreatedReceipt_successReceiptType(
 		address poolAddress,
 		bytes32 poolId,
-		address[] calldata tokens
+		address[] calldata tokens,
+		uint256[] calldata weights
 	) external view {
-		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens);
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens, weights);
 
 		RequestReceipt.CrossChainSuccessReceiptType successReceiptType = abi.decode(
 			receipt.data,
@@ -52,8 +59,13 @@ contract ReceiptFuzzTest is Test {
 		);
 	}
 
-	function testFuzz_crossChainPoolCreatedReceipt_data(address poolAddress, bytes32 poolId, address[] calldata tokens) external view {
-		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens);
+	function testFuzz_crossChainPoolCreatedReceipt_data(
+		address poolAddress,
+		bytes32 poolId,
+		address[] calldata tokens,
+		uint256[] calldata weights
+	) external view {
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainPoolCreatedReceipt(poolAddress, poolId, tokens, weights);
 
 		(, RequestReceipt.CrossChainPoolCreatedReceipt memory receiptData) = abi.decode(
 			receipt.data,
@@ -63,6 +75,7 @@ contract ReceiptFuzzTest is Test {
 		assertEq(receiptData.poolAddress, poolAddress, "Pool address of the receipt doesn't match with the input");
 		assertEq(receiptData.poolId, poolId, "Pool id of the receipt doesn't match with the input");
 		assertEq(receiptData.tokens, tokens, "Tokens of the receipt doesn't match with the input");
+		assertEq(receiptData.weights, weights, "Weights of the receipt doesn't match with the input");
 	}
 
 	function testFuzz_crossChainGenericFailedReceipt_receiptType() external view {

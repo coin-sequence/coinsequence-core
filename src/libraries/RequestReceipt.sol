@@ -24,6 +24,7 @@ library RequestReceipt {
 		address poolAddress;
 		bytes32 poolId;
 		address[] tokens;
+		uint256[] weights;
 	}
 
 	struct CrossChainDepositedReceipt {
@@ -44,13 +45,14 @@ library RequestReceipt {
 	function crossChainPoolCreatedReceipt(
 		address poolAddress,
 		bytes32 poolId,
-		address[] memory tokens
+		address[] memory tokens,
+		uint256[] memory weights
 	) internal view returns (CrossChainReceipt memory) {
 		return
 			_successReceipt(
 				abi.encode(
 					CrossChainSuccessReceiptType.POOL_CREATED,
-					CrossChainPoolCreatedReceipt({poolAddress: poolAddress, poolId: poolId, tokens: tokens})
+					CrossChainPoolCreatedReceipt({poolAddress: poolAddress, poolId: poolId, tokens: tokens, weights: weights})
 				)
 			);
 	}
