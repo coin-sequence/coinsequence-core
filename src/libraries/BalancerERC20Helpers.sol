@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// some functions in this file has been taken from Balancer's ERC20Helpers.sol file
+// some functions in this file have been taken from Balancer's ERC20Helpers.sol file
 // https://github.com/balancer/balancer-v2-monorepo/blob/master/pkg/solidity-utils/contracts/helpers/ERC20Helpers.sol#L1
 // This file is to adapt their code to work with the 0.8.25 solc version (our project is using solc 0.8.25)
+// Balancer functions: `asIAsset(IERC20[])`
 
 pragma solidity 0.8.25;
 

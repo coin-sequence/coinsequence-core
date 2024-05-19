@@ -2,30 +2,42 @@
 pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
-import {SafeCrossChainRequestType, CrossChainRequestType} from "src/libraries/SafeCrossChainRequestType.sol";
+import {SafeCrossChainRequestType, CrossChainRequest} from "src/libraries/SafeCrossChainRequestType.sol";
 
 contract SafeCrossChainRequestTypeUnitTest is Test {
 	function test_isCreatePool() external pure {
-		CrossChainRequestType requestType = CrossChainRequestType.CREATE_POOL;
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
 
 		assertTrue(SafeCrossChainRequestType.isCreatePool(requestType));
 	}
 
 	function test_isAddToken() external pure {
-		CrossChainRequestType requestType = CrossChainRequestType.ADD_TOKEN;
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
 
 		assertTrue(SafeCrossChainRequestType.isAddToken(requestType));
 	}
 
 	function test_isNotCreatePool() external pure {
-		CrossChainRequestType requestType = CrossChainRequestType.ADD_TOKEN;
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
 
 		assertFalse(SafeCrossChainRequestType.isCreatePool(requestType));
 	}
 
 	function test_isNotAddToken() external pure {
-		CrossChainRequestType requestType = CrossChainRequestType.CREATE_POOL;
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
 
 		assertFalse(SafeCrossChainRequestType.isAddToken(requestType));
+	}
+
+	function test_isDeposit() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.DEPOSIT;
+
+		assertTrue(SafeCrossChainRequestType.isDeposit(requestType));
+	}
+
+	function test_isNotDeposit() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
+
+		assertFalse(SafeCrossChainRequestType.isDeposit(requestType));
 	}
 }

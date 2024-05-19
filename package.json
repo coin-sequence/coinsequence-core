@@ -9,7 +9,7 @@
     "@balancer-labs/v2-interfaces": "^0.4.0",
     "@chainlink/contracts-ccip": "^1.4.0",
     "husky": "^9.0.11",
-    "solhint": "^4.5.4",
+    "solhint": "^5.0.1",
     "solhint-plugin-chainlink-solidity": "npm:@chainlink/solhint-plugin-chainlink-solidity@^1.0.1",
     "solhint-plugin-prettier": "^0.1.0",
     "thirdweb": "^5.19.1"
@@ -18,8 +18,9 @@
     "lint": "solhint 'src/**/*.sol' --max-warnings 0",
     "test": "forge test -vvv",
     "analyze": "slither .",
-    "deploy-engine": "forge script script/DeployEngine.s.sol --verify",
     "deploy": "npx thirdweb deploy",
+    "verify": "forge verify-contract --watch --guess-constructor-args --chain \"${npm_config_chain}\" --rpc-url \"${npm_config_rpc}\" \"${npm_config_address}\" \"${npm_config_contract}\"",
+    "docs": "open ./docs/book/index.html",
     "postinstall": "forge install"
   },
   "repository": {

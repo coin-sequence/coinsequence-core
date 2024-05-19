@@ -5,23 +5,27 @@ import {SafeChain} from "src/libraries/SafeChain.sol";
 import {BalancerPoolManager} from "src/contracts/BalancerPoolManager.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IRouterClient, Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {AccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
-import {CrossChainRequestType} from "src/types/CrossChainRequestType.sol";
-import {CrossChainCreatePoolRequest} from "src/types/CrossChainCreatePoolRequest.sol";
+import {AccessControlDefaultAdminRules, IAccessControlDefaultAdminRules} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol"; //solhint-disable-line max-line-length
+import {CrossChainRequest} from "src/libraries/CrossChainRequest.sol";
 import {CustomCast} from "src/libraries/CustomCast.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {RequestReceipt} from "src/libraries/RequestReceipt.sol";
 import {SafeCrossChainReceipt} from "src/libraries/SafeCrossChainReceipt.sol";
 import {NetworkHelper} from "src/libraries/NetworkHelper.sol";
 import {Arrays} from "src/libraries/Arrays.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {Swap} from "src/contracts/Swap.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, BalancerPoolManager {
+abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, BalancerPoolManager, Swap {
 	using SafeChain for uint256;
 	using Strings for uint256;
 	using CustomCast for address[];
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainReceiptType;
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainSuccessReceiptType;
 	using SafeCrossChainReceipt for RequestReceipt.CrossChainFailureReceiptType;
+	using EnumerableSet for EnumerableSet.UintSet;
+	using SafeERC20 for IERC20;
 
 	enum PoolStatus {
 		NOT_CREATED,
@@ -29,14 +33,30 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		CREATING
 	}
 
+	enum DepositStatus {
+		NOT_DEPOSITED,
+		DEPOSITED,
+		PENDING,
+		FAILED
+	}
+
 	struct ChainPool {
 		address poolAddress;
 		address[] poolTokens;
+		uint256[] weights;
 		bytes32 poolId;
 		PoolStatus status;
 	}
 
+	struct ChainDeposit {
+		DepositStatus status;
+		address user;
+		uint256 receivedBPT;
+		uint256 usdcAmount;
+	}
+
 	uint256 private constant CREATE_POOL_GAS_LIMIT = 3_000_000;
+	uint256 private constant DEPOSIT_GAS_LIMIT = 750_000;
 	uint48 private constant ADMIN_TRANSFER_DELAY = 7 days;
 
 	bytes32 public constant TOKENS_MANAGER_ROLE = "TOKENS_MANAGER";
@@ -44,10 +64,25 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	IRouterClient private immutable i_ccipRouterClient;
 
 	mapping(uint256 chainId => address crossChainPoolManager) private s_chainCrossChainPoolManager;
+	mapping(bytes32 depositId => mapping(uint256 chainId => ChainDeposit)) private s_deposits;
 	mapping(uint256 chainId => ChainPool pool) private s_chainPool;
+	EnumerableSet.UintSet internal s_chainsSet;
+	IERC20 internal immutable i_usdc;
 
 	/// @notice emitted once the Pool for the same chain as the CTF is successfully created.
 	event PoolManager__SameChainPoolCreated(bytes32 indexed poolId, address indexed poolAddress, address[] tokens);
+
+	/// @notice emitted once a deposit is made in the same chain is made in the CTF
+	event PoolManager__SameChainDeposited(address indexed forUser, bytes32 indexed depositId);
+
+	/// @notice emitted once a cross chain deposit is requested
+	event PoolManager__CrossChainDepositRequested(
+		bytes32 indexed depositId,
+		uint256 indexed chainId,
+		address indexed user,
+		bytes32 messageId,
+		uint256 usdcAmount
+	);
 
 	/// @notice emitted once the CrossChainPoolManager for the given chain is set
 	event PoolManager__CrossChainPoolManagerSet(uint256 indexed chainId, address indexed crossChainPoolManager);
@@ -64,11 +99,23 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	/// @notice emitted once the cross chain pool creation receipt is received
 	event PoolManager__CrossChainPoolCreated(address indexed poolAddress, bytes32 indexed poolId, uint256 indexed chainId);
 
+	/// @notice emitted once an amount of ETH has been withdrawn from the Pool Manager
+	event PoolManager__ETHWithdrawn(uint256 amount);
+
+	/// @notice emitted once the deposits on all pools across all chains have been confirmed
+	event PoolManager__AllDepositsConfirmed(bytes32 indexed depositId, address indexed user);
+
+	/// @notice emitted once one Cross Chain Deposit receipt is reived
+	event PoolManager__CrossChainDepositConfirmed(uint256 chainId, address indexed user, bytes32 indexed depositId);
+
 	/**
-	 * @notice thrown when the Pool Manager receives the Cross Chain Pool not created receipt
+	 * @notice emitted when the Pool Manager receives the Cross Chain Pool not created receipt
 	 * from the Cross Chain Pool Manager.
 	 *  */
-	event PoolManaged__FailedToCreateCrossChainPool(uint256 chainId, address crossChainPoolManager);
+	event PoolManager__FailedToCreateCrossChainPool(uint256 chainId, address crossChainPoolManager);
+
+	/// @notice emitted when the Pool Manager receives the Cross Chain Deposit failed receipt
+	event PoolManager__FailedToDeposit(address indexed forUser, bytes32 indexed depositId, uint256 usdcAmount);
 
 	/// @notice thrown if the pool has already been created and the CTF is trying to create it again
 	error PoolManager__PoolAlreadyCreated(address poolAddress, uint256 chainId);
@@ -106,6 +153,15 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	/// @notice thrown when the ETH witdraw fails for some reason
 	error PoolManager__FailedToWithdrawETH(bytes data);
 
+	/**
+	 * @notice thrown when the chainid passed is not mapped.
+	 * @custom:note this is not used in the create pool function, as they will add the chain
+	 *  */
+	error PoolManager__UnknownChain(uint256 chainId);
+
+	///  @notice thrown when the pool for the given chain is not active yet
+	error PoolManager__PoolNotActive(uint256 chainId);
+
 	constructor(
 		address balancerManagedPoolFactory,
 		address balancerVault,
@@ -117,6 +173,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		CCIPReceiver(ccipRouterClient)
 	{
 		i_ccipRouterClient = IRouterClient(ccipRouterClient);
+		s_chainsSet.add(block.chainid);
+		i_usdc = IERC20(NetworkHelper._getUSDC());
 	}
 
 	receive() external payable {}
@@ -132,6 +190,8 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		(bool success, bytes memory data) = defaultAdmin().call{value: amount}("");
 
 		if (!success) revert PoolManager__FailedToWithdrawETH(data);
+
+		emit PoolManager__ETHWithdrawn(amount);
 	}
 
 	/**
@@ -155,8 +215,16 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 	}
 
 	/**
+	 * @notice get the chains that the underlying tokens are on
+	 * @return chains the array of chains without duplicates
+	 *  */
+	function getChains() external view returns (uint256[] memory chains) {
+		return s_chainsSet.values();
+	}
+
+	/**
 	 * @notice get the Cross Chain Pool Manager contract for the given chain
-	 * @param chainId the chain id that the Cross Chain Pool Manager contract is in
+	 * @param chainId the chain id that the Cross Chain Pool Manager contract is on
 	 *  */
 	function getCrossChainPoolManager(uint256 chainId) external view returns (address) {
 		return s_chainCrossChainPoolManager[chainId];
@@ -164,14 +232,14 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 	/**
 	 * @notice get the Pool info for the given chain
-	 * @param chainId the chain id that the Pool contract is in
+	 * @param chainId the chain id that the Pool contract is on
 	 *  */
-	function getChainPool(uint256 chainId) external view returns (ChainPool memory) {
+	function getChainPool(uint256 chainId) public view returns (ChainPool memory) {
 		return s_chainPool[chainId];
 	}
 
-	function supportsInterface(bytes4 interfaceId) public view override(AccessControlDefaultAdminRules, CCIPReceiver) returns (bool) {
-		return AccessControlDefaultAdminRules.supportsInterface(interfaceId) || CCIPReceiver.supportsInterface(interfaceId);
+	function supportsInterface(bytes4 interfaceId) public pure override(AccessControlDefaultAdminRules, CCIPReceiver) returns (bool) {
+		return interfaceId == type(IAccessControlDefaultAdminRules).interfaceId || CCIPReceiver.supportsInterface(interfaceId);
 	}
 
 	function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
@@ -192,11 +260,74 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				receipt.data,
 				(RequestReceipt.CrossChainFailureReceiptType)
 			);
-			_handleCrossChainFailureReceipt(receipt.chainId, failureTypeReceipt, ccipSender);
+			_handleCrossChainFailureReceipt(receipt.chainId, failureTypeReceipt, receipt, ccipSender);
 		}
 	}
 
 	function _onCreatePool(uint256 chainId, address[] memory tokens) internal virtual;
+
+	function _onDeposit(address user, uint256 totalBPTReceived) internal virtual;
+
+	function _requestPoolDeposit(
+		bytes32 depositId,
+		uint256 chainId,
+		address swapProvider,
+		bytes[] calldata swapsCalldata,
+		uint256 minBPTOut,
+		uint256 depositUSDCAmount
+	) internal {
+		IERC20 usdc = i_usdc;
+
+		if (!s_chainsSet.contains(chainId)) revert PoolManager__UnknownChain(chainId);
+		ChainPool memory chainPool = s_chainPool[chainId];
+
+		if (chainPool.status != PoolStatus.ACTIVE) revert PoolManager__PoolNotActive(chainId);
+
+		if (chainId.isCurrent()) {
+			_swapUSDC(IERC20(usdc), depositUSDCAmount, swapProvider, swapsCalldata);
+			uint256 bptReceived = _joinPool(chainPool.poolId, minBPTOut);
+
+			s_deposits[depositId][chainId] = ChainDeposit(DepositStatus.DEPOSITED, msg.sender, bptReceived, depositUSDCAmount);
+			if (s_chainsSet.length() == 1) _onDeposit(msg.sender, bptReceived);
+
+			emit PoolManager__SameChainDeposited(msg.sender, depositId);
+		} else {
+			s_deposits[depositId][chainId] = ChainDeposit(DepositStatus.PENDING, msg.sender, 0, depositUSDCAmount);
+			address crossChainPoolManager = s_chainCrossChainPoolManager[chainId];
+			uint64 chainSelector = NetworkHelper._getCCIPChainSelector(chainId);
+
+			if (crossChainPoolManager == address(0)) revert PoolManager__CrossChainPoolManagerNotFound(chainId);
+			if (chainSelector == 0) revert PoolManager__ChainSelectorNotFound(chainId);
+
+			bytes memory messageData = abi.encode(
+				CrossChainRequest.CrossChainRequestType.DEPOSIT,
+				CrossChainRequest.CrossChainDepositRequest({
+					depositId: depositId,
+					poolId: chainPool.poolId,
+					minBPTOut: minBPTOut,
+					swapProvider: swapProvider,
+					swapsCalldata: swapsCalldata
+				})
+			);
+
+			bytes32 messageId;
+
+			// we use scopes here because somehow stack too deep error is being thrown
+			{
+				(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(
+					chainId,
+					DEPOSIT_GAS_LIMIT,
+					depositUSDCAmount,
+					messageData
+				);
+
+				usdc.forceApprove(address(i_ccipRouterClient), depositUSDCAmount);
+				messageId = i_ccipRouterClient.ccipSend{value: fee}(chainSelector, message);
+			}
+
+			emit PoolManager__CrossChainDepositRequested(depositId, chainId, msg.sender, messageId, depositUSDCAmount);
+		}
+	}
 
 	/**
 	 * @notice Create a new pool with the given Tokens for the given chain
@@ -208,20 +339,21 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 		// sort the tokens in ascending order
 		// balancer requires the tokens in ascending order
-		tokens = Arrays._sort(tokens);
+		tokens = Arrays.sort(tokens);
 
 		if (chainPool.status != PoolStatus.NOT_CREATED) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
 		if (chainId.isCurrent()) {
-			s_chainPool[chainId].poolTokens = tokens;
-			s_chainPool[chainId].status = PoolStatus.ACTIVE;
+			//slither-disable-next-line reentrancy-no-eth
+			(address poolAddress, bytes32 poolId, uint256[] memory weights) = _createPool(poolName, chainId.toString(), tokens.toIERC20List());
 
-			(address poolAddress, bytes32 poolId) = _createPool(poolName, chainId.toString(), tokens.toIERC20List());
-
-			//slither-disable-start reentrancy-no-eth
-			s_chainPool[chainId].poolAddress = poolAddress;
-			s_chainPool[chainId].poolId = poolId;
-			//slither-disable-end reentrancy-no-eth
+			s_chainPool[chainId] = ChainPool({
+				poolAddress: poolAddress,
+				poolId: poolId,
+				poolTokens: tokens,
+				status: PoolStatus.ACTIVE,
+				weights: weights
+			});
 
 			_onCreatePool(chainId, tokens);
 
@@ -235,11 +367,11 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 			if (chainSelector == 0) revert PoolManager__ChainSelectorNotFound(chainId);
 
 			bytes memory messageData = abi.encode(
-				CrossChainRequestType.CREATE_POOL,
-				CrossChainCreatePoolRequest({tokens: tokens, poolName: poolName})
+				CrossChainRequest.CrossChainRequestType.CREATE_POOL,
+				CrossChainRequest.CrossChainCreatePoolRequest({tokens: tokens, poolName: poolName})
 			);
 
-			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, CREATE_POOL_GAS_LIMIT, messageData);
+			(Client.EVM2AnyMessage memory message, uint256 fee) = _buildCrossChainMessage(chainId, CREATE_POOL_GAS_LIMIT, 0, messageData);
 			//slither-disable-next-line arbitrary-send-eth
 			bytes32 messageId = i_ccipRouterClient.ccipSend{value: fee}(chainSelector, message);
 
@@ -247,33 +379,29 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		}
 	}
 
-	/**
-	 * @notice Add the given token to an existing pool at the given chain
-	 * @param chainId the chain that the pool is in
-	 * @param token the token that will be added to the pool
-	 * @param pool the pool that the token will be added to
-	 */
-	function _requestTokenAddition(uint256 chainId, address token, address pool) internal {
-		ChainPool memory chainPool = s_chainPool[chainId];
+	// /**
+	//  * @notice Add the given token to an existing pool at the given chain
+	//  * @param chainId the chain that the pool is in
+	//  * @param token the token that will be added to the pool
+	//  * @param pool the pool that the token will be added to
+	//  */
+	// function _requestTokenAddition(uint256 chainId, address token, address pool) internal {
+	// 	ChainPool memory chainPool = s_chainPool[chainId];
 
-		if (chainId.isCurrent()) {} else {}
-	}
+	// 	if (chainId.isCurrent()) {} else {}
+	// }
 
-	/**
-	 * @notice Batch token add for the given pool at the given chain
-	 * @param chainId the chain that the pool is in
-	 * @param tokens the tokens that will be added to the pool
-	 * @param pool the pool that the token will be added to
-	 */
-	function _requestBatchTokenAddition(uint256 chainId, address[] memory tokens, address pool) internal {
-		ChainPool memory chainPool = s_chainPool[chainId];
+	// /**
+	//  * @notice Batch token add for the given pool at the given chain
+	//  * @param chainId the chain that the pool is in
+	//  * @param tokens the tokens that will be added to the pool
+	//  * @param pool the pool that the token will be added to
+	//  */
+	// function _requestBatchTokenAddition(uint256 chainId, address[] memory tokens, address pool) internal {
+	// 	ChainPool memory chainPool = s_chainPool[chainId];
 
-		if (chainId.isCurrent()) {} else {}
-	}
-
-	function _getPool(uint256 chainId) internal view returns (ChainPool memory pool) {
-		return s_chainPool[chainId];
-	}
+	// 	if (chainId.isCurrent()) {} else {}
+	// }
 
 	function _handleCrossChainSuccessReceipt(
 		uint256 chainId,
@@ -286,17 +414,37 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 				(RequestReceipt.CrossChainSuccessReceiptType, RequestReceipt.CrossChainPoolCreatedReceipt)
 			);
 
-			_handleCrossChainPoolCreatedReceipt(chainId, receiptPoolCreated);
+			return _handleCrossChainPoolCreatedReceipt(chainId, receiptPoolCreated);
+		}
+
+		if (successTypeReceipt.isDeposited()) {
+			(, RequestReceipt.CrossChainDepositedReceipt memory receiptDeposited) = abi.decode(
+				receipt.data,
+				(RequestReceipt.CrossChainSuccessReceiptType, RequestReceipt.CrossChainDepositedReceipt)
+			);
+
+			return _handleCrossChainDepositedReceipt(chainId, receiptDeposited);
 		}
 	}
 
 	function _handleCrossChainFailureReceipt(
 		uint256 chainId,
 		RequestReceipt.CrossChainFailureReceiptType failureTypeReceipt,
+		RequestReceipt.CrossChainReceipt memory receipt,
 		address sender
 	) private {
 		if (failureTypeReceipt.isPoolNotCreated()) {
-			emit PoolManaged__FailedToCreateCrossChainPool(chainId, sender);
+			emit PoolManager__FailedToCreateCrossChainPool(chainId, sender);
+			return;
+		}
+
+		if (failureTypeReceipt.isNotDeposited()) {
+			(, RequestReceipt.CrossChainDepositFailedReceipt memory depositFailedReceipt) = abi.decode(
+				receipt.data,
+				(RequestReceipt.CrossChainFailureReceiptType, RequestReceipt.CrossChainDepositFailedReceipt)
+			);
+
+			return _handleCrossChainDepositFailure(chainId, depositFailedReceipt);
 		}
 	}
 
@@ -304,11 +452,13 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		ChainPool memory chainPool = s_chainPool[chainId];
 		if (chainPool.status == PoolStatus.ACTIVE) revert PoolManager__PoolAlreadyCreated(chainPool.poolAddress, chainId);
 
+		s_chainsSet.add(chainId);
 		s_chainPool[chainId] = ChainPool({
 			status: PoolStatus.ACTIVE,
 			poolAddress: receipt.poolAddress,
 			poolId: receipt.poolId,
-			poolTokens: receipt.tokens
+			poolTokens: receipt.tokens,
+			weights: receipt.weights
 		});
 
 		_onCreatePool(chainId, receipt.tokens);
@@ -316,15 +466,98 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		emit PoolManager__CrossChainPoolCreated(receipt.poolAddress, receipt.poolId, chainId);
 	}
 
+	function _handleCrossChainDepositedReceipt(uint256 chainId, RequestReceipt.CrossChainDepositedReceipt memory receipt) private {
+		uint256 chains = s_chainsSet.length();
+		uint256 confirmedDeposits = 0;
+		uint256 totalReceivedBpt = 0;
+		address user = s_deposits[receipt.depositId][chainId].user;
+
+		s_deposits[receipt.depositId][chainId].status = DepositStatus.DEPOSITED;
+		s_deposits[receipt.depositId][chainId].receivedBPT = receipt.receivedBPT;
+
+		for (uint256 i = 0; i < chains; ) {
+			ChainDeposit memory chainDeposit = s_deposits[receipt.depositId][s_chainsSet.at(i)];
+
+			if (chainDeposit.status == DepositStatus.DEPOSITED) {
+				++confirmedDeposits;
+				totalReceivedBpt += chainDeposit.receivedBPT;
+			}
+
+			unchecked {
+				++i;
+			}
+		}
+
+		if (chains == confirmedDeposits) {
+			emit PoolManager__AllDepositsConfirmed(receipt.depositId, user);
+
+			_onDeposit(user, totalReceivedBpt);
+		} else {
+			emit PoolManager__CrossChainDepositConfirmed(chainId, user, receipt.depositId);
+		}
+	}
+
+	function _handleCrossChainDepositFailure(
+		uint256 chainId,
+		RequestReceipt.CrossChainDepositFailedReceipt memory depositFailedReceipt
+	) private {
+		uint256 chainsCount = s_chainsSet.length();
+		address user = s_deposits[depositFailedReceipt.depositId][chainId].user;
+		uint256 failedChainsCount = 0;
+		uint256 totalDepositAmount = 0;
+
+		s_deposits[depositFailedReceipt.depositId][chainId].status = DepositStatus.FAILED;
+
+		for (uint256 i = 0; i < chainsCount; ) {
+			ChainDeposit memory chainDeposit = s_deposits[depositFailedReceipt.depositId][s_chainsSet.at(i)];
+			totalDepositAmount += chainDeposit.usdcAmount;
+
+			if (chainDeposit.status == DepositStatus.FAILED) {
+				++failedChainsCount;
+			}
+
+			// if (chainDeposit.status == DepositStatus.DEPOSITED) {
+			// TODO: WITHDRAW request from chain
+			// }
+
+			unchecked {
+				++i;
+			}
+		}
+
+		if (chainsCount == failedChainsCount) {
+			emit PoolManager__FailedToDeposit(user, depositFailedReceipt.depositId, totalDepositAmount);
+
+			i_usdc.safeTransfer(user, totalDepositAmount);
+		}
+	}
+
+	/**
+	 * @dev build CCIP Message to send to another chain
+	 * @param chainId the chain that the CrossChainPoolManager is in
+	 * @param gasLimit the gas limit for the transaction in the other chain
+	 * @param usdcAmount the amount of USDC to send, if zero, no usdc will be sent
+	 * @param data the encoded data to pass to the CrossChainPoolManager
+	 * @return message the CCIP Message to be sent
+	 * @return fee the ccip fee to send this message, note that the fee will be in ETH
+	 */
 	function _buildCrossChainMessage(
 		uint256 chainId,
 		uint256 gasLimit,
+		uint256 usdcAmount,
 		bytes memory data
 	) private view returns (Client.EVM2AnyMessage memory message, uint256 fee) {
+		Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](0);
+
+		if (usdcAmount != 0) {
+			tokenAmounts = new Client.EVMTokenAmount[](1);
+			tokenAmounts[0] = Client.EVMTokenAmount({token: address(i_usdc), amount: usdcAmount});
+		}
+
 		message = Client.EVM2AnyMessage({
 			receiver: abi.encode(s_chainCrossChainPoolManager[chainId]),
 			data: data,
-			tokenAmounts: new Client.EVMTokenAmount[](0),
+			tokenAmounts: tokenAmounts,
 			feeToken: address(0),
 			extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit}))
 		});

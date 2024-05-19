@@ -1,12 +1,45 @@
 // SPDX-License-Identifier: MIT
-// Code taken from OpenZeppelin Contracts (last updated v5.0.0) (utils/Arrays.sol)
-// solhint-disable no-inline-assembly
+/*
+ * Some functions of this library have been entirely taken from OpenZeppelin (utils/Arrays.sol)
+ * like: `_sort`, `quicksort`, `begin`, `end`, `mload`, `_swap`, `_defaultComp`, `_castToBytes32Array`.
+ * Code: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/Arrays.sol
+ */
+
+// solhint-disable no-inline-assembly,chainlink-solidity/prefix-internal-functions-with-underscore
 pragma solidity 0.8.25;
 
 /**
  * @dev Collection of functions related to array types.
  */
 library Arrays {
+	/**
+	 * @dev sum all the elements in an array by each other
+	 * e.g [2, 2, 2] = 6
+	 *
+	 * @return result the result of the sum
+	 *  */
+	function sum(uint256[] memory elements) internal pure returns (uint256 result) {
+		assert(elements.length < type(uint256).max);
+
+		uint256 elementsCount = elements.length;
+
+		for (uint256 i = 0; i < elementsCount; ) {
+			result += elements[i];
+
+			unchecked {
+				++i;
+			}
+		}
+	}
+
+	/**
+	 * @dev Sorts an array of address in increasing order.
+	 */
+	function sort(address[] memory array) internal pure returns (address[] memory) {
+		_sort(_castToBytes32Array(array), _defaultComp);
+		return array;
+	}
+
 	/**
 	 * @dev Sort an array of bytes32 (in memory) following the provided comparator function.
 	 *
@@ -18,16 +51,8 @@ library Arrays {
 	 * when executing this as part of a transaction. If the array being sorted is too large, the sort operation may
 	 * consume more gas than is available in a block, leading to potential DoS.
 	 */
-	function _sort(bytes32[] memory array, function(bytes32, bytes32) pure returns (bool) comp) internal pure returns (bytes32[] memory) {
+	function _sort(bytes32[] memory array, function(bytes32, bytes32) pure returns (bool) comp) private pure returns (bytes32[] memory) {
 		_quickSort(_begin(array), _end(array), comp);
-		return array;
-	}
-
-	/**
-	 * @dev Variant of {sort} that sorts an array of address in increasing order.
-	 */
-	function _sort(address[] memory array) internal pure returns (address[] memory) {
-		_sort(_castToBytes32Array(array), _defaultComp);
 		return array;
 	}
 
