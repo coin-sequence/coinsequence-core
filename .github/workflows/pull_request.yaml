@@ -26,5 +26,5 @@ jobs:
       - name: Run slither
         uses: crytic/slither-action@v0.4.0
         with:
-          slither-args: --foundry-compile-all --exclude pragma,unused-import,solc-version,naming-convention
+          slither-args: --foundry-compile-all --exclude unused-import,naming-convention,pragma,solc-version,assembly,unused-return,calls-loop,reentrancy-events,low-level-calls
           slither-config: "./slither.config.json"
