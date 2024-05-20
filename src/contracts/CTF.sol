@@ -71,7 +71,7 @@ contract CTF is PoolManager, ERC20Permit {
 
 	/**
 	 * @notice deposit into the CTF to receive CTF Tokens
-	 * @param swapProviders the swap providers for each chain.
+	 * @param swapProviders the swap contracts for each chain.
 	 * @param swapsCalldata the swaps calldata for each chain.
 	 * @param minBPTOut the min BPT out for each chain.
 	 * @param usdcAmountPerChain the USDC Amount to send for each chain to execute the swap (with decimals)
@@ -207,13 +207,11 @@ contract CTF is PoolManager, ERC20Permit {
 	}
 
 	function _onCreatePool(uint256 chainId, address[] memory tokens) internal override {
-		address[] memory underlyingTokens = s_underlyingTokens;
-		address[] memory chainUnderlyingTokens = s_chainUnderlyingTokens[chainId];
 		uint256 tokensLength = tokens.length;
 
 		for (uint256 i = 0; i < tokensLength; ) {
-			chainUnderlyingTokens[chainUnderlyingTokens.length] = tokens[i];
-			underlyingTokens[underlyingTokens.length] = tokens[i];
+			s_chainUnderlyingTokens[chainId].push(tokens[i]);
+			s_underlyingTokens.push(tokens[i]);
 
 			unchecked {
 				++i;
@@ -221,9 +219,6 @@ contract CTF is PoolManager, ERC20Permit {
 		}
 
 		s_chains.push(chainId);
-		s_chainUnderlyingTokens[chainId] = chainUnderlyingTokens;
-		//slither-disable-next-line costly-loop
-		s_underlyingTokens = underlyingTokens;
 	}
 
 	function _onDeposit(address user, uint256 totalBPTReceived) internal virtual override {
