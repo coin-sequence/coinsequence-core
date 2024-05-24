@@ -11,22 +11,10 @@ contract SafeCrossChainRequestTypeUnitTest is Test {
 		assertTrue(SafeCrossChainRequestType.isCreatePool(requestType));
 	}
 
-	function test_isAddToken() external pure {
-		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
-
-		assertTrue(SafeCrossChainRequestType.isAddToken(requestType));
-	}
-
 	function test_isNotCreatePool() external pure {
-		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.DEPOSIT;
 
 		assertFalse(SafeCrossChainRequestType.isCreatePool(requestType));
-	}
-
-	function test_isNotAddToken() external pure {
-		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
-
-		assertFalse(SafeCrossChainRequestType.isAddToken(requestType));
 	}
 
 	function test_isDeposit() external pure {
@@ -39,5 +27,17 @@ contract SafeCrossChainRequestTypeUnitTest is Test {
 		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.CREATE_POOL;
 
 		assertFalse(SafeCrossChainRequestType.isDeposit(requestType));
+	}
+
+	function test_isWithdraw() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.WITHDRAW;
+
+		assertTrue(SafeCrossChainRequestType.isWithdraw(requestType));
+	}
+
+	function test_isNotWithdraw() external pure {
+		CrossChainRequest.CrossChainRequestType requestType = CrossChainRequest.CrossChainRequestType.DEPOSIT;
+
+		assertFalse(SafeCrossChainRequestType.isWithdraw(requestType));
 	}
 }

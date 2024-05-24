@@ -19,6 +19,22 @@ contract ReceiptFuzzTest is Test {
 		assertEq(receipt.chainId, chainId, "Receipt Chain ID should match with the chain sent");
 	}
 
+	function testFuzz_crossChainDepositedReceipt_chainId(uint64 chainId, bytes32 withdrawId, uint256 bptAmount) external {
+		vm.chainId(chainId);
+
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainDepositedReceipt(withdrawId, bptAmount);
+
+		assertEq(receipt.chainId, chainId, "Receipt Chain ID should match with the chain sent");
+	}
+
+	function testFuzz_crossChainWithdrawReceipt_chainId(uint64 chainId, bytes32 withdrawId, uint256 usdcAmount) external {
+		vm.chainId(chainId);
+
+		RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainWithdrawnReceipt(withdrawId, usdcAmount);
+
+		assertEq(receipt.chainId, chainId, "Receipt Chain ID should match with the chain sent");
+	}
+
 	function testFezz__crossChainGenericFailedReceipt_chainId(uint64 chainId) external {
 		vm.chainId(chainId);
 

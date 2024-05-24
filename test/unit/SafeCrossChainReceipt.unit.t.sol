@@ -27,7 +27,7 @@ contract SafeCrossChainReceiptUnitTest is Test {
 	}
 
 	function test_isNotPoolCreated() external pure {
-		assertFalse(SafeCrossChainReceipt.isPoolCreated(RequestReceipt.CrossChainSuccessReceiptType.TOKEN_ADDED));
+		assertFalse(SafeCrossChainReceipt.isPoolCreated(RequestReceipt.CrossChainSuccessReceiptType.DEPOSITED));
 	}
 
 	function test_isDeposited() external pure {
@@ -35,6 +35,14 @@ contract SafeCrossChainReceiptUnitTest is Test {
 	}
 
 	function test_isNotDeposited() external pure {
-		assertFalse(SafeCrossChainReceipt.isDeposited(RequestReceipt.CrossChainSuccessReceiptType.TOKEN_ADDED));
+		assertFalse(SafeCrossChainReceipt.isDeposited(RequestReceipt.CrossChainSuccessReceiptType.POOL_CREATED));
+	}
+
+	function test_isWithdrawn() external pure {
+		assertTrue(SafeCrossChainReceipt.isWithdrawn(RequestReceipt.CrossChainSuccessReceiptType.WITHDRAW));
+	}
+
+	function test_isNotWithdrawn() external pure {
+		assertFalse(SafeCrossChainReceipt.isWithdrawn(RequestReceipt.CrossChainSuccessReceiptType.DEPOSITED));
 	}
 }

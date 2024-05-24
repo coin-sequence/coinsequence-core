@@ -4,14 +4,17 @@ pragma solidity 0.8.25;
 import {BalancerERC20Helpers} from "src/libraries/BalancerERC20Helpers.sol";
 import {IERC20 as OpenZeppelinIERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVault, IERC20 as BalancerIERC20} from "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IBalancerManagedPoolFactoryV2} from "src/interfaces/IBalancerManagedPoolFactoryV2.sol";
 import {ProtocolFeeType} from "@balancer-labs/v2-interfaces/contracts/standalone-utils/IProtocolFeePercentagesProvider.sol"; //solhint-disable-line max-line-length
 import {IManagedPool} from "@balancer-labs/v2-interfaces/contracts/pool-utils/IManagedPool.sol";
 import {Arrays} from "src/libraries/Arrays.sol";
+import {IBalancerQueries} from "@balancer-labs/v2-interfaces/contracts/standalone-utils/IBalancerQueries.sol";
 
 abstract contract BalancerPoolManager {
 	using BalancerERC20Helpers for BalancerIERC20[];
 	using Arrays for uint256[];
+	using SafeERC20 for OpenZeppelinIERC20;
 
 	enum JoinPoolKind {
 		INIT,
@@ -20,8 +23,15 @@ abstract contract BalancerPoolManager {
 		ALL_TOKENS_IN_FOR_EXACT_BPT_OUT
 	}
 
+	enum ExitPoolKind {
+		EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
+		EXACT_BPT_IN_FOR_TOKENS_OUT,
+		BPT_IN_FOR_EXACT_TOKENS_OUT
+	}
+
 	IVault private immutable i_vault;
 	IBalancerManagedPoolFactoryV2 private immutable i_managedPoolFactory;
+	IBalancerQueries private immutable i_queries;
 	uint256 private constant MAX_POOL_TOKENS = 50;
 	uint256 private constant NORMALIZED_WEIGHT_SUM = 1e18; // all tokens weight summed should be equal to 1e18
 
@@ -37,6 +47,26 @@ abstract contract BalancerPoolManager {
 	constructor(address balancerManagedPoolFactory, address balancerVault) {
 		i_vault = IVault(balancerVault);
 		i_managedPoolFactory = IBalancerManagedPoolFactoryV2(balancerManagedPoolFactory);
+	}
+
+	function getExitPoolData(
+		bytes32 poolId,
+		uint256 exitTokenIndex,
+		uint256 bptAmountIn,
+		uint256 minAmountOut
+	) public view returns (IVault.ExitPoolRequest memory exitPoolRequest, OpenZeppelinIERC20 exitToken) {
+		(BalancerIERC20[] memory poolTokens, , ) = i_vault.getPoolTokens(poolId);
+		exitToken = OpenZeppelinIERC20(address(poolTokens[exitTokenIndex + 1])); // we use +1 to skip the BPT token
+
+		uint256[] memory minAmountsOut = new uint256[](poolTokens.length);
+		minAmountsOut[exitTokenIndex] = minAmountOut;
+
+		exitPoolRequest = IVault.ExitPoolRequest({
+			assets: poolTokens.asIAsset(),
+			minAmountsOut: minAmountsOut,
+			userData: abi.encode(ExitPoolKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT, bptAmountIn, exitTokenIndex),
+			toInternalBalance: false
+		});
 	}
 
 	function _createPool(
@@ -104,7 +134,7 @@ abstract contract BalancerPoolManager {
 
 			maxAmountsInWithBPT[i] = tokenBalance;
 			amountsInWithoutBPT[i - bptIndexOffset] = tokenBalance;
-			poolTokens[i].approve(address(i_vault), tokenBalance);
+			OpenZeppelinIERC20(address(poolTokens[i])).forceApprove(address(i_vault), tokenBalance);
 
 			unchecked {
 				++i;
@@ -119,6 +149,32 @@ abstract contract BalancerPoolManager {
 		uint256 bptAmountAfterJoin = BalancerIERC20(poolAddress).balanceOf(address(this));
 
 		bptAmountReceived = (bptAmountAfterJoin - bptAmountBeforeJoin);
+	}
+
+	function _exitPool(
+		bytes32 poolId,
+		uint256 bptAmountIn,
+		uint256 minAmountOut,
+		uint256 exitTokenIndex
+	) internal returns (uint256 exitTokenAmountReceived, OpenZeppelinIERC20 exitToken) {
+		(address poolAddress, ) = i_vault.getPool(poolId);
+
+		(IVault.ExitPoolRequest memory request, OpenZeppelinIERC20 _exitToken) = getExitPoolData(
+			poolId,
+			exitTokenIndex,
+			bptAmountIn,
+			minAmountOut
+		);
+
+		OpenZeppelinIERC20(poolAddress).forceApprove(address(i_vault), bptAmountIn);
+
+		uint256 exitTokenBalanceBeforeExit = _exitToken.balanceOf(address(this));
+		i_vault.exitPool(poolId, address(this), payable(address(this)), request);
+		uint256 exitTokenBalanceAfterExit = _exitToken.balanceOf(address(this));
+
+		exitTokenAmountReceived = (exitTokenBalanceAfterExit - exitTokenBalanceBeforeExit);
+
+		return (exitTokenAmountReceived, _exitToken);
 	}
 
 	/**

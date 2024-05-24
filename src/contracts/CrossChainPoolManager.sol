@@ -28,10 +28,24 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		address usdcAddress;
 	}
 
+	struct FailedWithdraw {
+		CrossChainRequest.CrossChainWithdrawRequest request;
+		Client.Any2EVMMessage ccipMessage;
+		bool retriable;
+	}
+
+	struct FailedDeposit {
+		CrossChainRequest.CrossChainDepositRequest request;
+		Client.Any2EVMMessage ccipMessage;
+		bool retriable;
+	}
+
 	address private immutable i_CTF;
 
 	mapping(bytes32 originMessageId => CCIPReceipt ccipReceipt) private s_receipts;
 	mapping(bytes32 originMessageId => bool retryAllowed) private s_receiptRetryAllowed;
+	mapping(bytes32 withdrawId => FailedWithdraw failedWithdraw) private s_failedWithdraws;
+	mapping(bytes32 depositId => FailedDeposit failedDeposit) private s_failedDeposits;
 
 	/// @notice emitted once the Pool for the CTF is successfully created
 	event CrossChainPoolManager__PoolCreated(address indexed poolAddress, bytes32 indexed poolId, address[] tokens);
@@ -43,6 +57,12 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		bytes errorData
 	);
 
+	/// @notice emitted once a withdraw failed for some reason
+	event CrossChainPoolManager__FailedToWithdraw(bytes32 indexed withdrawId);
+
+	/// @notice emitted once a deposit failed for some reason
+	event CrossChainPoolManager__FailedToDeposit(bytes32 indexed depositId);
+
 	/// @notice emitted once the receipt was successfully sent
 	event CrossChainPoolManager__ReceiptSent(
 		bytes32 indexed originMessageId,
@@ -53,8 +73,17 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	/// @notice emitted once the requested deposit was successful
 	event CrossChainPoolManager__Deposited(bytes32 indexed poolId, bytes32 indexed depositId, uint256 usdcAmount, uint256 bptreceived);
 
+	/// @notice emitted once the requested withdrawal was successful
+	event CrossChainPoolManager__Withdrawn(bytes32 indexed amount, bytes32 indexed withdrawId, uint256 bptIn, uint256 usdcReceived);
+
 	/// @notice emitted once the ETH was withdrawn by the Admin
 	event CrossChainPoolManager__ETHWithdrawn(uint256 amount);
+
+	/// @notice emitted when the admin successfully overrode a failed withdraw
+	event CrossChainPoolManager__overrodeFailedWithdraw(bytes32 withdrawId);
+
+	/// @notice emitted when the admin successfully overrode a failed deposit
+	event CrossChainPoolManager__overrodeFailedDeposit(bytes32 depositId);
 
 	/// @notice thrown when the ccip received message sender is not the CTF
 	error CrossChainPoolManager__SenderIsNotCTF(address sender, address ctf);
@@ -70,6 +99,9 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 
 	/// @notice thrown when someone tries to re-send a receipt which didn't fail
 	error CrossChainPoolManager__CannotRetrySendReceipt(bytes32 originMessageId);
+
+	/// @notice thrown when someone tries to retry a failed withdraw which didn't fail
+	error CrossChainPoolManager__CannotRetryFailedWithdraw(bytes32 withdrawId);
 
 	/// @notice thrown when the CTF address is invalid at the creation of the contract
 	error CrossChainPoolManager__InvalidCTFAddress();
@@ -118,6 +150,32 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		return _rawSendReceipt(s_receipts[originMessageId]);
 	}
 
+	/// @notice re-send a failed withdraw at given withdraw id and override the request data. Only the admin can perform this action
+	function overrideFailedWithdraw(bytes32 withdrawId, CrossChainRequest.CrossChainWithdrawRequest memory request) external onlyOwner {
+		FailedWithdraw memory failedWithdraw = s_failedWithdraws[withdrawId];
+
+		if (!failedWithdraw.retriable) revert CrossChainPoolManager__CannotRetryFailedWithdraw(withdrawId);
+
+		delete s_failedWithdraws[withdrawId];
+		_executeSuccessActions(failedWithdraw.ccipMessage, _withdraw(request));
+
+		emit CrossChainPoolManager__overrodeFailedWithdraw(withdrawId);
+	}
+
+	/// @notice re-send a failed deposit at given deposit id and override the request data. Only the admin can perform this action
+	function overrideFailedDeposit(bytes32 depositId, CrossChainRequest.CrossChainDepositRequest memory request) external onlyOwner {
+		FailedDeposit memory failedDeposit = s_failedDeposits[depositId];
+		uint256 receivedUSDC = failedDeposit.ccipMessage.destTokenAmounts[0].amount;
+		IERC20 usdc = IERC20(failedDeposit.ccipMessage.destTokenAmounts[0].token);
+
+		if (!failedDeposit.retriable) revert CrossChainPoolManager__CannotRetryFailedWithdraw(depositId);
+
+		delete s_failedDeposits[depositId];
+		_executeSuccessActions(failedDeposit.ccipMessage, _deposit(request, receivedUSDC, usdc));
+
+		emit CrossChainPoolManager__overrodeFailedDeposit(depositId);
+	}
+
 	/**
 	 * 	@notice Process the CCIP Message received. It can only be called by the contract itself
 	 *  @dev We use this function as external to make it possible the use of Try-Catch
@@ -142,6 +200,15 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 			return _deposit(request, message.destTokenAmounts[0].amount, IERC20(message.destTokenAmounts[0].token));
 		}
 
+		if (requestType.isWithdraw()) {
+			(, CrossChainRequest.CrossChainWithdrawRequest memory request) = abi.decode(
+				message.data,
+				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainWithdrawRequest)
+			);
+
+			return _withdraw(request);
+		}
+
 		revert CrossChainPoolManager__UnknownMessage(message.messageId, message.data);
 	}
 
@@ -158,13 +225,18 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		return i_CTF;
 	}
 
+	/// @notice get the Failed withdraw at the given id
+	function getFailedWithdraw(bytes32 withdrawId) external view returns (FailedWithdraw memory) {
+		return s_failedWithdraws[withdrawId];
+	}
+
 	//slither-disable-next-line reentrancy-benign
 	function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
 		address messageSender = abi.decode(message.sender, (address));
 		if (messageSender != i_CTF) revert CrossChainPoolManager__SenderIsNotCTF(messageSender, i_CTF);
 
 		try this.processCCIPMessage(message) returns (RequestReceipt.CrossChainReceipt memory receipt) {
-			_sendReceipt(message, receipt, 0, address(0));
+			_executeSuccessActions(message, receipt);
 		} catch {
 			_executeErrorActions(message);
 		}
@@ -189,12 +261,34 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		uint256 usdcAmountReceived,
 		IERC20 usdc
 	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
-		_swapUSDC(usdc, usdcAmountReceived, request.swapProvider, request.swapsCalldata);
+		_swap(usdc, usdcAmountReceived, request.swapProvider, request.swapsCalldata);
 		uint256 bptReceived = _joinPool(request.poolId, request.minBPTOut);
 
 		emit CrossChainPoolManager__Deposited(request.poolId, request.depositId, usdcAmountReceived, bptReceived);
 
 		return RequestReceipt.crossChainDepositedReceipt(request.depositId, bptReceived);
+	}
+
+	function _withdraw(
+		CrossChainRequest.CrossChainWithdrawRequest memory request
+	) private returns (RequestReceipt.CrossChainReceipt memory receipt) {
+		bytes[] memory swapsData = new bytes[](1);
+		swapsData[0] = request.swapCalldata;
+		address usdcAddress = NetworkHelper._getUSDC();
+		IERC20 usdc = IERC20(usdcAddress);
+
+		(uint256 exitTokenAmountOut, IERC20 exitToken) = _exitPool(
+			request.poolId,
+			request.bptAmountIn,
+			request.exitTokenMinAmountOut,
+			request.exitTokenIndex
+		);
+
+		uint256 usdcOut = _swapUSDCOut(exitToken, usdc, exitTokenAmountOut, request.swapProvider, swapsData);
+
+		emit CrossChainPoolManager__Withdrawn(request.poolId, request.withdrawalId, request.bptAmountIn, usdcOut);
+
+		return RequestReceipt.crossChainWithdrawnReceipt(request.withdrawalId, usdcOut);
 	}
 
 	//slither-disable-next-line reentrancy-benign
@@ -212,6 +306,8 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 			usdcAmount: usdcAmount,
 			usdcAddress: usdcAddress
 		});
+
+		if (usdcAmount != 0 && usdcAddress != address(0)) IERC20(usdcAddress).forceApprove(i_ccipRouter, usdcAmount);
 
 		s_receipts[message.messageId] = ccipReceipt;
 
@@ -241,11 +337,40 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 				message.data,
 				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainDepositRequest)
 			);
-			RequestReceipt.CrossChainReceipt memory receipt = RequestReceipt.crossChainDepositFailedReceipt(depositRequest.depositId);
-			return _sendReceipt(message, receipt, message.destTokenAmounts[0].amount, message.destTokenAmounts[0].token);
+
+			s_failedDeposits[depositRequest.depositId] = FailedDeposit({request: depositRequest, ccipMessage: message, retriable: true});
+			emit CrossChainPoolManager__FailedToDeposit(depositRequest.depositId);
+
+			return;
+		}
+
+		if (requestType.isWithdraw()) {
+			(, CrossChainRequest.CrossChainWithdrawRequest memory withdrawRequest) = abi.decode(
+				message.data,
+				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainWithdrawRequest)
+			);
+
+			s_failedWithdraws[withdrawRequest.withdrawalId] = FailedWithdraw({request: withdrawRequest, ccipMessage: message, retriable: true});
+			emit CrossChainPoolManager__FailedToWithdraw(withdrawRequest.withdrawalId);
+
+			return;
 		}
 
 		_sendReceipt(message, _getGenericErrorReceipt(message.messageId, requestType), 0, address(0));
+	}
+
+	function _executeSuccessActions(Client.Any2EVMMessage memory message, RequestReceipt.CrossChainReceipt memory receipt) private {
+		CrossChainRequest.CrossChainRequestType requestType = abi.decode(message.data, (CrossChainRequest.CrossChainRequestType));
+
+		if (requestType.isWithdraw()) {
+			RequestReceipt.CrossChainWithdrawReceipt memory withdrawReceipt = abi.decode(
+				receipt.data,
+				(RequestReceipt.CrossChainWithdrawReceipt)
+			);
+			return _sendReceipt(message, receipt, withdrawReceipt.receivedUSDC, NetworkHelper._getUSDC());
+		}
+
+		_sendReceipt(message, receipt, 0, address(0));
 	}
 
 	function _getGenericErrorReceipt(

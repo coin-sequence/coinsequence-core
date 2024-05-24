@@ -9,11 +9,11 @@ library SafeCrossChainRequestType {
 		return requestType == CrossChainRequest.CrossChainRequestType.CREATE_POOL;
 	}
 
-	function isAddToken(CrossChainRequest.CrossChainRequestType requestType) internal pure returns (bool) {
-		return requestType == CrossChainRequest.CrossChainRequestType.ADD_TOKEN;
-	}
-
 	function isDeposit(CrossChainRequest.CrossChainRequestType requestType) internal pure returns (bool) {
 		return requestType == CrossChainRequest.CrossChainRequestType.DEPOSIT;
+	}
+
+	function isWithdraw(CrossChainRequest.CrossChainRequestType requestType) internal pure returns (bool) {
+		return requestType == CrossChainRequest.CrossChainRequestType.WITHDRAW;
 	}
 }

@@ -27,7 +27,9 @@ contract CTF is PoolManager, ERC20Permit {
 
 	address[] private s_underlyingTokens;
 	uint256[] private s_chains;
-	uint256 private s_depositNonce;
+
+	/// @dev nonce used to generate withdraw and deposit ids
+	uint256 private s_nonce;
 
 	/**
 	 * @notice emitted once a deposit is successfully made and CTF tokens are minted
@@ -35,14 +37,11 @@ contract CTF is PoolManager, ERC20Permit {
 	 *  */
 	event CTF__Deposited(address indexed user, uint256 amount);
 
+	/// @notice emitted once a withdraw is successfully made and CTF tokens are burned
+	event CTF__Withdrawn(address indexed user, uint256 ctfAmountBurned, uint256 usdcAmountWithdrawn);
+
 	/// @notice thrown if the underlying tokens array and chains array have different lengths
 	error CTF__TokensAndChainsMismatch(uint256 tokens, uint256 chains);
-
-	/// @notice thrown when try to add a new underlying token, but the token is already added
-	error CTF__TokenAlreadyAdded(address token);
-
-	/// @notice thrown when try to add a token to a pool, but the pool is not created
-	error CTF__PoolNotCreated();
 
 	/// @notice thrown when the swap providers array and chains array have different lengths
 	error CTF__SwapProvidersLengthMismatch(uint256 swapProvidersLength, uint256 chainsLength);
@@ -52,6 +51,12 @@ contract CTF is PoolManager, ERC20Permit {
 
 	/// @notice thrown when the min BPT out array and chains array have different lengths
 	error CTF__MinBPTOutLengthMismatch(uint256 minBPTOutLength, uint256 chainsLength);
+
+	/// @notice thrown when the min exit token out array and chains array have different lengths
+	error CTF__MinExitTokenOutLengthMismatch(uint256 minExitTokenOutLength, uint256 chainsLength);
+
+	/// @notice thrown when the exit token index array and chains array have different lengths
+	error CTF__ExitTokenIndexLengthMismatch(uint256 exitTokenIndexLength, uint256 chainsLength);
 
 	/**
 	 * @notice thrown when trying to perform actions in a pool that is not in Active state
@@ -71,9 +76,9 @@ contract CTF is PoolManager, ERC20Permit {
 
 	/**
 	 * @notice deposit into the CTF to receive CTF Tokens
-	 * @param swapProviders the swap contracts for each chain.
-	 * @param swapsCalldata the swaps calldata for each chain.
-	 * @param minBPTOut the min BPT out for each chain.
+	 * @param swapProviders the swap contract for each chain to be used for swapping the USDC for the pool tokens.
+	 * @param swapsCalldata the swaps calldata for each chain to be passed to the swap contract.
+	 * @param minBPTOut the min BPT out for each chain given the in token amount for each chain.
 	 * @param usdcAmountPerChain the USDC Amount to send for each chain to execute the swap (with decimals)
 	 * @custom:note the @param swapProviders, @param swapsCalldata and @param minBPTOut are corretaled
 	 * so they must be in the same order, as they all will be used in the same chain.
@@ -85,19 +90,61 @@ contract CTF is PoolManager, ERC20Permit {
 		uint256[] calldata minBPTOut,
 		uint256 usdcAmountPerChain
 	) external {
-		bytes32 depositId = keccak256(abi.encodePacked(block.number, msg.sender, ++s_depositNonce));
+		bytes32 depositId = keccak256(abi.encodePacked(block.number, msg.sender, ++s_nonce));
+		uint256 chains = s_chainsSet.length();
 
-		uint256 chainsLength = s_chainsSet.length();
+		if (chains != swapProviders.length) revert CTF__SwapProvidersLengthMismatch(swapProviders.length, chains);
+		if (chains != swapsCalldata.length) revert CTF__SwapsCallDataLengthMismatch(swapsCalldata.length, chains);
+		if (chains != minBPTOut.length) revert CTF__MinBPTOutLengthMismatch(minBPTOut.length, chains);
 
-		if (chainsLength != swapProviders.length) revert CTF__SwapProvidersLengthMismatch(swapProviders.length, chainsLength);
-		if (chainsLength != swapsCalldata.length) revert CTF__SwapsCallDataLengthMismatch(swapsCalldata.length, chainsLength);
-		if (chainsLength != minBPTOut.length) revert CTF__MinBPTOutLengthMismatch(minBPTOut.length, chainsLength);
+		i_usdc.safeTransfer(address(this), usdcAmountPerChain * chains);
 
-		i_usdc.safeTransferFrom(msg.sender, address(this), usdcAmountPerChain * chainsLength);
-
-		for (uint256 i = 0; i < chainsLength; ) {
+		for (uint256 i = 0; i < chains; ) {
 			uint256 chainId = s_chainsSet.at(i);
 			_requestPoolDeposit(depositId, chainId, swapProviders[i], swapsCalldata[i], minBPTOut[i], usdcAmountPerChain);
+
+			unchecked {
+				++i;
+			}
+		}
+	}
+
+	/**
+	 * @notice withdraw from the CTF and received USDC back
+	 * @param bptAmountPerChain the total ctf amount to withdraw divided by the number of chains
+	 * @param exitTokenIndex the index of the token that will be removed in the balancer pool for each chain
+	 * @param exitTokenMinAmountOut the min amount of the exit token that will be received from balancer given
+	 * the bpt amount in, in each chain
+	 * @param swapProviders the swap contract used for swapping the exit token to usdc for each chain.
+	 * @param swapsCalldata the swap calldata to be passed for the swap contract for each chain.
+	 * 	*/
+	function withdraw(
+		uint256 bptAmountPerChain,
+		address[] calldata swapProviders,
+		uint256[] calldata exitTokenIndex,
+		uint256[] calldata exitTokenMinAmountOut,
+		bytes[] calldata swapsCalldata
+	) external {
+		bytes32 withdrawId = keccak256(abi.encodePacked(block.number, msg.sender, ++s_nonce));
+		uint256 chains = s_chainsSet.length();
+
+		if (chains != swapProviders.length) revert CTF__SwapProvidersLengthMismatch(swapProviders.length, chains);
+		if (chains != swapsCalldata.length) revert CTF__SwapsCallDataLengthMismatch(swapsCalldata.length, chains);
+		if (chains != exitTokenIndex.length) revert CTF__ExitTokenIndexLengthMismatch(exitTokenIndex.length, chains);
+		if (chains != exitTokenMinAmountOut.length) revert CTF__MinExitTokenOutLengthMismatch(exitTokenMinAmountOut.length, chains);
+
+		transferFrom(msg.sender, address(this), bptAmountPerChain * chains);
+
+		for (uint256 i = 0; i < chains; ) {
+			_requestPoolWithdrawal(
+				withdrawId,
+				bptAmountPerChain,
+				s_chainsSet.at(i),
+				swapProviders[i],
+				exitTokenIndex[i],
+				exitTokenMinAmountOut[i],
+				swapsCalldata[i]
+			);
 
 			unchecked {
 				++i;
@@ -160,14 +207,7 @@ contract CTF is PoolManager, ERC20Permit {
 				_requestNewPoolCreation({poolName: string.concat(name(), " ", "Pool"), chainId: tokenChain, tokens: chainTokensToBeAdded});
 
 				//slither-disable-next-line costly-loop
-			}
-			// else if (chainPool.status == PoolStatus.ACTIVE) {
-			// TODO: Add Tokens functionality
-			// chainTokensToBeAddedLength > 1
-			// 	? _requestBatchTokenAddition({chainId: tokenChain, tokens: chainTokensToBeAdded, pool: chainPool.poolAddress})
-			// 	: _requestTokenAddition({chainId: tokenChain, token: underlyingTokens[i], pool: chainPool.poolAddress});
-			// }
-			else {
+			} else {
 				revert Pool__NotActive(tokenChain);
 			}
 
@@ -197,11 +237,7 @@ contract CTF is PoolManager, ERC20Permit {
 
 		if (chainPool.status == PoolStatus.NOT_CREATED) {
 			_requestNewPoolCreation({poolName: string.concat(name(), " ", "Pool"), chainId: block.chainid, tokens: underlyingTokens});
-		}
-		//  else if (chainPool.status == PoolStatus.ACTIVE) {
-		// 	// _requestBatchTokenAddition({chainId: block.chainid, tokens: underlyingTokens, pool: chainPool.poolAddress});
-		// }
-		else {
+		} else {
 			revert Pool__NotActive(block.chainid);
 		}
 	}
@@ -225,5 +261,12 @@ contract CTF is PoolManager, ERC20Permit {
 		_mint(user, totalBPTReceived);
 
 		emit CTF__Deposited(user, totalBPTReceived);
+	}
+
+	function _onWithdraw(address user, uint256 totalBPTWithdrawn, uint256 totalUSDCToSend) internal virtual override {
+		_burn(address(this), totalBPTWithdrawn);
+		i_usdc.transfer(user, totalUSDCToSend);
+
+		emit CTF__Withdrawn(user, totalBPTWithdrawn, totalUSDCToSend);
 	}
 }
