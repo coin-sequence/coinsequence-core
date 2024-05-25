@@ -95,3 +95,7 @@ npm run verify --address={ContractAddress} --contract={Contract} --chain={ChainN
 ```shell
 npm run verify --address=0x6c23B5382b47EF1e91c59ac48D53a595Fd49a70A --contract=CTF --chain=11155420 --rpc=https://optimism-sepolia-rpc.publicnode.com
 ```
+
+### Contracts Documentation
+
+You can find the documentation of all the contracts in the [docs](docs/src/src/) folder.
