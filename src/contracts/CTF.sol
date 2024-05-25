@@ -97,7 +97,7 @@ contract CTF is PoolManager, ERC20Permit {
 		if (chains != swapsCalldata.length) revert CTF__SwapsCallDataLengthMismatch(swapsCalldata.length, chains);
 		if (chains != minBPTOut.length) revert CTF__MinBPTOutLengthMismatch(minBPTOut.length, chains);
 
-		i_usdc.safeTransfer(address(this), usdcAmountPerChain * chains);
+		i_usdc.safeTransferFrom(msg.sender, address(this), usdcAmountPerChain * chains);
 
 		for (uint256 i = 0; i < chains; ) {
 			uint256 chainId = s_chainsSet.at(i);
@@ -133,7 +133,7 @@ contract CTF is PoolManager, ERC20Permit {
 		if (chains != exitTokenIndex.length) revert CTF__ExitTokenIndexLengthMismatch(exitTokenIndex.length, chains);
 		if (chains != exitTokenMinAmountOut.length) revert CTF__MinExitTokenOutLengthMismatch(exitTokenMinAmountOut.length, chains);
 
-		transferFrom(msg.sender, address(this), bptAmountPerChain * chains);
+		transfer(address(this), bptAmountPerChain * chains);
 
 		for (uint256 i = 0; i < chains; ) {
 			_requestPoolWithdrawal(
@@ -265,7 +265,7 @@ contract CTF is PoolManager, ERC20Permit {
 
 	function _onWithdraw(address user, uint256 totalBPTWithdrawn, uint256 totalUSDCToSend) internal virtual override {
 		_burn(address(this), totalBPTWithdrawn);
-		i_usdc.transfer(user, totalUSDCToSend);
+		i_usdc.safeTransfer(user, totalUSDCToSend);
 
 		emit CTF__Withdrawn(user, totalBPTWithdrawn, totalUSDCToSend);
 	}

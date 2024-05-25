@@ -31,6 +31,7 @@ abstract contract Swap {
 	error Swap__USDCAmountShouldIncrease(uint256 amountBeforeSwap, uint256 amountAfterSwap);
 
 	function _swap(IERC20 from, uint256 amount, address swapProvider, bytes[] memory swapsData) internal {
+		//slither-disable-next-line incorrect-equality
 		if (address(from).code.length == 0) revert Swap__InvalidToken(address(from));
 
 		uint256 swapsDataLength = swapsData.length;

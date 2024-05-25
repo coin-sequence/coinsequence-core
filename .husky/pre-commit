@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
+
 RED="\033[1;31m"
 CLEAR="\033[0m"
-
 if ! npm run lint -- --max-warnings 0; then
  echo "${RED}🚫 Linter found warnings. Please fix them before committing.${CLEAR}"
  exit 1

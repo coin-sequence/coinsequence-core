@@ -151,7 +151,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	}
 
 	/// @notice re-send a failed withdraw at given withdraw id and override the request data. Only the admin can perform this action
-	function overrideFailedWithdraw(bytes32 withdrawId, CrossChainRequest.CrossChainWithdrawRequest memory request) external onlyOwner {
+	function overrideFailedWithdraw(bytes32 withdrawId, CrossChainRequest.CrossChainWithdrawRequest calldata request) external onlyOwner {
 		FailedWithdraw memory failedWithdraw = s_failedWithdraws[withdrawId];
 
 		if (!failedWithdraw.retriable) revert CrossChainPoolManager__CannotRetryFailedWithdraw(withdrawId);
@@ -163,7 +163,7 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	}
 
 	/// @notice re-send a failed deposit at given deposit id and override the request data. Only the admin can perform this action
-	function overrideFailedDeposit(bytes32 depositId, CrossChainRequest.CrossChainDepositRequest memory request) external onlyOwner {
+	function overrideFailedDeposit(bytes32 depositId, CrossChainRequest.CrossChainDepositRequest calldata request) external onlyOwner {
 		FailedDeposit memory failedDeposit = s_failedDeposits[depositId];
 		uint256 receivedUSDC = failedDeposit.ccipMessage.destTokenAmounts[0].amount;
 		IERC20 usdc = IERC20(failedDeposit.ccipMessage.destTokenAmounts[0].token);
@@ -192,21 +192,21 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		}
 
 		if (requestType.isDeposit()) {
-			(, CrossChainRequest.CrossChainDepositRequest memory request) = abi.decode(
+			(, CrossChainRequest.CrossChainDepositRequest memory depositRequest) = abi.decode(
 				message.data,
 				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainDepositRequest)
 			);
 
-			return _deposit(request, message.destTokenAmounts[0].amount, IERC20(message.destTokenAmounts[0].token));
+			return _deposit(depositRequest, message.destTokenAmounts[0].amount, IERC20(message.destTokenAmounts[0].token));
 		}
 
 		if (requestType.isWithdraw()) {
-			(, CrossChainRequest.CrossChainWithdrawRequest memory request) = abi.decode(
+			(, CrossChainRequest.CrossChainWithdrawRequest memory withdrawRequest) = abi.decode(
 				message.data,
 				(CrossChainRequest.CrossChainRequestType, CrossChainRequest.CrossChainWithdrawRequest)
 			);
 
-			return _withdraw(request);
+			return _withdraw(withdrawRequest);
 		}
 
 		revert CrossChainPoolManager__UnknownMessage(message.messageId, message.data);
@@ -228,6 +228,11 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 	/// @notice get the Failed withdraw at the given id
 	function getFailedWithdraw(bytes32 withdrawId) external view returns (FailedWithdraw memory) {
 		return s_failedWithdraws[withdrawId];
+	}
+
+	/// @notice get the Failed deposit at the given id
+	function getFailedDeposit(bytes32 depositId) external view returns (FailedDeposit memory) {
+		return s_failedDeposits[depositId];
 	}
 
 	//slither-disable-next-line reentrancy-benign
@@ -363,9 +368,9 @@ contract CrossChainPoolManager is CCIPReceiver, BalancerPoolManager, Ownable2Ste
 		CrossChainRequest.CrossChainRequestType requestType = abi.decode(message.data, (CrossChainRequest.CrossChainRequestType));
 
 		if (requestType.isWithdraw()) {
-			RequestReceipt.CrossChainWithdrawReceipt memory withdrawReceipt = abi.decode(
+			(, RequestReceipt.CrossChainWithdrawReceipt memory withdrawReceipt) = abi.decode(
 				receipt.data,
-				(RequestReceipt.CrossChainWithdrawReceipt)
+				(RequestReceipt.CrossChainSuccessReceiptType, RequestReceipt.CrossChainWithdrawReceipt)
 			);
 			return _sendReceipt(message, receipt, withdrawReceipt.receivedUSDC, NetworkHelper._getUSDC());
 		}

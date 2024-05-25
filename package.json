@@ -23,6 +23,7 @@
     "queryExit": "cast call \"${npm_config_queries}\" \"queryExit(bytes32,address,address,(address[],uint256[],bytes,bool)) (uint256,uint256[])\" \"${npm_config_poolid}\" \"${npm_config_ctf}\" \"${npm_config_ctf}\" \"(\"${npm_config_assets}\",[0,0,0],\"${npm_config_userdata}\",false)\" --rpc-url \"${npm_config_rpc}\"",
     "withdrawSwapCalldata": "sh ./scripts/gen-swap-to-usdc-calldata.sh",
     "docs": "open ./docs/book/index.html",
+    "prepare": "husky",
     "postinstall": "forge install"
   },
   "repository": {

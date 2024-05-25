@@ -579,7 +579,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 		s_withdrawals[receipt.withdrawId][chainId].status = WithdrawStatus.WITHDRAWN;
 		s_withdrawals[receipt.withdrawId][chainId].usdcReceived = receipt.receivedUSDC;
 
-		for (uint256 i = 1; i < chains; ) {
+		for (uint256 i = 0; i < chains; ) {
 			ChainWithdrawal memory chainWithdrawal = s_withdrawals[receipt.withdrawId][s_chainsSet.at(i)];
 			if (chainWithdrawal.status == WithdrawStatus.WITHDRAWN) {
 				++confirmedWithdrawals;
@@ -594,7 +594,7 @@ abstract contract PoolManager is CCIPReceiver, AccessControlDefaultAdminRules, B
 
 		if (chains == confirmedWithdrawals) {
 			emit PoolManager__AllWithdrawalsConfirmed(receipt.withdrawId, user);
-			_onWithdraw({user: user, totalBPTWithdrawn: totalReceivedUSDC, totalUSDCToSend: totalReceivedUSDC});
+			_onWithdraw({user: user, totalBPTWithdrawn: ctfAmountToBurn, totalUSDCToSend: totalReceivedUSDC});
 		} else {
 			emit PoolManager__CrossChainWithdrawalConfirmed(chainId, user, receipt.withdrawId);
 		}
