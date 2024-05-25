@@ -1,6 +1,5 @@
 cache/
 out/
-docs/
 .env
 node_modules
 coverage
