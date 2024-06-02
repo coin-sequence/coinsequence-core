@@ -96,6 +96,15 @@ npm run verify --address={ContractAddress} --contract={Contract} --chain={ChainN
 npm run verify --address=0x6c23B5382b47EF1e91c59ac48D53a595Fd49a70A --contract=CTF --chain=11155420 --rpc=https://optimism-sepolia-rpc.publicnode.com
 ```
 
-### Contracts Documentation
+## Contracts Documentation
 
 You can find the documentation of all the contracts in the [docs](docs/src/src/) folder.
+
+## Deployments
+### Optimism Sepolia
+[CTF](https://sepolia-optimism.etherscan.io/address/0xBb77B4F79AD58165aA6F3da97fc67c5178BbC0C5)\
+[Swap Provider](https://sepolia-optimism.etherscan.io/address/0xdc478014d9c22969A82CD6dfb2Fa441618f3462b)
+
+### Base Sepolia
+[Cross Chain Pool Manager](https://sepolia.basescan.org/address/0xa38ead530857cfc218a76807d2732128745e6c03)\
+[Swap Provider](https://sepolia.basescan.org/address/0xF4b37DBA9D8382294e66882dcfD55d65dDbAbFd2)
